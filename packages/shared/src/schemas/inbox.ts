@@ -34,6 +34,7 @@ export const emailWithClassificationSchema = z.object({
   confidence: z.number().nullable(),
   justification: z.string().nullable(),
   status: z.enum(['classified', 'unclassified']).nullable(),
+  isAmbiguous: z.boolean().nullable(),
 });
 export type EmailWithClassification = z.infer<typeof emailWithClassificationSchema>;
 
