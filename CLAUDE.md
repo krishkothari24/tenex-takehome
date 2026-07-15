@@ -38,4 +38,4 @@ Keep entries factual and short. Never edit or delete a past entry — this is a 
 ## Workflow
 - Work one phase at a time (see docs/BUILD_GUIDE.md §9). Don't start the next phase until the current one is solid and committed.
 - Typecheck + lint after any series of changes.
-- Commit at the end of each phase as a checkpoint.
+- make a new branch and commit at the end of each phase as a checkpoint and then push in that branch. 

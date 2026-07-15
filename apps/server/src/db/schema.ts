@@ -1,4 +1,14 @@
-import { boolean, jsonb, pgTable, real, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  real,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -32,25 +42,42 @@ export const emails = pgTable(
   (table) => [unique('emails_user_thread_unique').on(table.userId, table.gmailThreadId)],
 );
 
-// Scaffolded for Phase 2/3 — not populated or queried in Phase 1.
+// Buckets are seeded per-user (defaults + custom), so userId is required —
+// this keeps every user's classification taxonomy isolated. `description`
+// grounds the LLM classifier; `color`/`sortOrder` drive the Phase 3 UI.
 export const buckets = pgTable('buckets', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  description: text('description'),
+  color: text('color'),
+  sortOrder: integer('sort_order').notNull().default(0),
   isDefault: boolean('is_default').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Scaffolded for Phase 2 — not populated or queried in Phase 1.
-export const classificationResults = pgTable('classification_results', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  emailId: uuid('email_id')
-    .notNull()
-    .references(() => emails.id, { onDelete: 'cascade' }),
-  bucketId: uuid('bucket_id')
-    .notNull()
-    .references(() => buckets.id, { onDelete: 'cascade' }),
-  confidence: real('confidence'),
-  justification: text('justification'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+// One current classification per email (unique emailId → upsert; a full
+// re-run against a new bucket set replaces it). `bucketId` is nullable so a
+// batch that fails after its corrective retry can be persisted as a visible
+// `status: 'unclassified'` row rather than being silently dropped.
+export const classificationResults = pgTable(
+  'classification_results',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    emailId: uuid('email_id')
+      .notNull()
+      .references(() => emails.id, { onDelete: 'cascade' }),
+    bucketId: uuid('bucket_id').references(() => buckets.id, { onDelete: 'cascade' }),
+    secondaryBucketId: uuid('secondary_bucket_id').references(() => buckets.id, {
+      onDelete: 'set null',
+    }),
+    confidence: real('confidence'),
+    justification: text('justification'),
+    status: text('status').notNull().default('classified'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('classification_results_email_unique').on(table.emailId)],
+);
