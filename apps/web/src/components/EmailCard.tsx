@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import type { EmailWithClassification } from '@inbox-concierge/shared';
 
 interface EmailCardProps {
@@ -11,19 +11,22 @@ interface EmailCardProps {
  * application" card, no click-through. `title` gives the justification a free native tooltip;
  * a richer hover/click interaction is Phase 5 polish, not needed to satisfy the spec here.
  * `layoutId` lets Framer Motion animate this card smoothly as it moves from the "Unsorted"
- * column into its real bucket column while classification streams in.
+ * column into its real bucket column while classification streams in. When the user prefers
+ * reduced motion, `layout` (position) still animates minimally, but the opacity/slide entrance
+ * is skipped — this is the animation-heaviest phase, so the pre-existing gap gets fixed here.
  */
 export function EmailCard({ email, bucketColor }: EmailCardProps) {
   const isUnclassified = email.status === 'unclassified';
+  const reduceMotion = useReducedMotion();
 
   return (
     <motion.article
       layout
       layoutId={email.emailId}
-      initial={{ opacity: 0, y: 8 }}
+      initial={reduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.25 }}
+      exit={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
+      transition={{ duration: reduceMotion ? 0 : 0.25 }}
       className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm"
       title={email.justification ?? undefined}
     >

@@ -92,6 +92,7 @@ async function main() {
             confidence: c.confidence,
             justification: c.justification,
             status: bucketId ? 'classified' : 'unclassified',
+            estimatedReadMinutes: c.estimatedReadMinutes,
           });
         }
         console.log(`  [batch ${outcome.batchIndex + 1}/${batchCount}] ok — ${outcome.classifications.length} classified`);

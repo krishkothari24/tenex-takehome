@@ -1,6 +1,8 @@
 import type {
   BucketsResponse,
   ClassifyStreamEvent,
+  CreateBucketResponse,
+  DashboardAnalytics,
   EmailsResponse,
   InboxSyncResponse,
   SessionUser,
@@ -32,23 +34,34 @@ export const api = {
   syncInbox: () => request<InboxSyncResponse>('/api/inbox/sync'),
   listBuckets: () => request<BucketsResponse>('/api/buckets'),
   listEmails: () => request<EmailsResponse>('/api/emails'),
-  classifyStream,
+  getAnalytics: () => request<DashboardAnalytics>('/api/analytics'),
+  createBucket: (name: string) =>
+    request<CreateBucketResponse>('/api/buckets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+  classifyStream: (signal: AbortSignal | null = null) => streamPost('/api/classify', signal),
+  reclassifyStream: (signal: AbortSignal | null = null) => streamPost('/api/reclassify', signal),
 };
 
 /**
- * `POST /api/classify` is a mutating, side-effecting call (it persists classification rows), so
- * it's consumed via `fetch()` + a manual `ReadableStream` reader rather than `EventSource` —
- * `EventSource` only supports GET and can't express that. Parses SSE `data: ...\n\n` frames by
- * hand and yields one parsed `ClassifyStreamEvent` per frame as they arrive.
+ * Both `/api/classify` and `/api/reclassify` are mutating, side-effecting calls (they persist
+ * classification rows), so they're consumed via `fetch()` + a manual `ReadableStream` reader
+ * rather than `EventSource` — `EventSource` only supports GET and can't express that. Shared here
+ * so the SSE frame-parsing logic isn't duplicated between the two streams.
  */
-async function* classifyStream(signal: AbortSignal | null = null): AsyncGenerator<ClassifyStreamEvent> {
-  const res = await fetch('/api/classify', { method: 'POST', credentials: 'include', signal });
+async function* streamPost(path: string, signal: AbortSignal | null): AsyncGenerator<ClassifyStreamEvent> {
+  const res = await fetch(path, { method: 'POST', credentials: 'include', signal });
   if (res.status === 401) throw new UnauthenticatedError();
   if (!res.ok || !res.body) {
-    throw new Error(`Classify request failed with status ${res.status}`);
+    throw new Error(`Request to ${path} failed with status ${res.status}`);
   }
+  yield* parseSSEFrames(res);
+}
 
-  const reader = res.body.getReader();
+async function* parseSSEFrames(res: Response): AsyncGenerator<ClassifyStreamEvent> {
+  const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 

@@ -26,6 +26,8 @@ export default async function inboxRoutes(fastify: FastifyInstance) {
           fromAddress: thread.fromAddress,
           snippet: thread.snippet,
           internalDate: thread.internalDate,
+          messageCount: thread.messageCount,
+          hasReplyFromUser: thread.hasReplyFromUser,
         });
       }
 

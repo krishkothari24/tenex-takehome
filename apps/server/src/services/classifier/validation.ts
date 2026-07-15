@@ -35,6 +35,9 @@ export function classificationBatchSchema(bucketNames: string[]) {
       .union([bucketEnum, z.null()])
       .optional()
       .default(null),
+    // Value guard: bounds the model's per-email time estimate so one hallucinated outlier can't
+    // poison the dashboard's aggregate time-cost sum (same instinct as the truncate*() guards above).
+    estimatedReadMinutes: z.number().min(0).max(30),
   });
   return z.object({ classifications: z.array(item).min(1) });
 }

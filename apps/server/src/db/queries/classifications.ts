@@ -11,6 +11,7 @@ export interface UpsertClassificationInput {
   confidence: number | null;
   justification: string | null;
   status: ClassificationStatus;
+  estimatedReadMinutes: number | null;
 }
 
 /** Idempotent — keyed on emailId, so a full re-run replaces rather than duplicates. */
@@ -24,6 +25,7 @@ export async function upsertClassification(input: UpsertClassificationInput): Pr
       confidence: input.confidence,
       justification: input.justification,
       status: input.status,
+      estimatedReadMinutes: input.estimatedReadMinutes,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -34,6 +36,7 @@ export async function upsertClassification(input: UpsertClassificationInput): Pr
         confidence: input.confidence,
         justification: input.justification,
         status: input.status,
+        estimatedReadMinutes: input.estimatedReadMinutes,
         updatedAt: new Date(),
       },
     });
@@ -49,6 +52,7 @@ export async function markEmailsUnclassified(emailIds: string[]): Promise<void> 
       confidence: null,
       justification: null,
       status: 'unclassified',
+      estimatedReadMinutes: null,
     });
   }
 }
@@ -81,7 +85,9 @@ export async function listClassificationsForUser(userId: string) {
  * All of a user's synced emails, left-joined with their classification if one exists yet.
  * Unlike `listClassificationsForUser` (inner join, only already-classified rows), this includes
  * emails with no classification_results row at all — `GET /api/emails`'s "render from Postgres"
- * query, and how the frontend detects "some emails still need a classify run" on load.
+ * query, and how the frontend detects "some emails still need a classify run" on load. Also the
+ * one join the analytics service needs (email + classification + bucket name), so it selects the
+ * VIP-heuristic and time-cost columns too rather than duplicating this join elsewhere.
  */
 export async function listEmailsWithClassification(userId: string) {
   return db
@@ -90,12 +96,15 @@ export async function listEmailsWithClassification(userId: string) {
       subject: emails.subject,
       fromAddress: emails.fromAddress,
       snippet: emails.snippet,
+      messageCount: emails.messageCount,
+      hasReplyFromUser: emails.hasReplyFromUser,
       bucket: primaryBucket.name,
       bucketColor: primaryBucket.color,
       secondaryBucket: secondaryBucket.name,
       confidence: classificationResults.confidence,
       justification: classificationResults.justification,
       status: classificationResults.status,
+      estimatedReadMinutes: classificationResults.estimatedReadMinutes,
     })
     .from(emails)
     .leftJoin(classificationResults, eq(classificationResults.emailId, emails.id))

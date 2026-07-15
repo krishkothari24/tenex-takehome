@@ -113,3 +113,51 @@ Added a `useRef<string | null>` (`bootstrappedForUserId`) keyed on the signed-in
 
 **Why it matters:**
 This is the same class of issue as the Phase 2 concurrency-cap correction (§8.6's canonical example) — the AI-generated code was structurally reasonable but hadn't been exercised against a real render lifecycle where "the effect can legitimately run twice" matters, and here that gap would have doubled real classification spend, not just wasted a network call.
+
+### [Phase 4] — Time-cost dashboard tile planned as a hardcoded per-bucket table — 2026-07-15
+**What Claude Code generated first:**
+The Phase 4 plan's time-cost dashboard metric ("~X hours of reading") was designed around a static constant, `BUCKET_MINUTES_PER_EMAIL: Record<string, number>` (e.g. "Important = 3 min, Promotions = 0.25 min"), summed per bucket.
+
+**What was wrong / the risk:**
+A hardcoded lookup table is exactly the kind of arbitrary, non-AI-native shortcut the build guide's own framing ("genuine LLM-engineering depth over feature count") argues against — especially in a codebase whose entire premise is an LLM classification pipeline that already reads every email's actual content. The number would have been a bucket-level guess, not grounded in what a given email actually says.
+
+**How it was caught:**
+Human rejected the plan before execution — "why not have an agent make the decision... rather than having the minutes hardcoded."
+
+**The fix:**
+Redesigned so the classifier estimates `estimatedReadMinutes` per email as one more field in the same batched Haiku tool-use call that already classifies each email (prompt.ts, validation.ts's Zod schema with a `[0,30]` value guard, threaded through `EmailClassification`, persisted on `classification_results`). Zero extra API calls; the dashboard now sums/averages real per-email model output instead of a static table.
+
+**Why it matters:**
+This is precisely the "verify and refine AI output" story the build guide asks candidates to have ready — the first plan was structurally reasonable but settled for a cheaper, less-grounded design when the harder, more AI-native version was available at no extra cost.
+
+### [Phase 4] — Assumed a missing FK cascade on `classificationResults.bucketId` — 2026-07-15
+**What Claude Code generated first:**
+While reasoning about why bucket deletion wasn't wired up, the plan asserted `classificationResults.bucketId`'s foreign key had no `onDelete` clause, so deleting a bucket would throw a Postgres FK violation.
+
+**What was wrong / the risk:**
+Reading `db/schema.ts` directly showed `bucketId` already has `onDelete: 'cascade'` — deleting a bucket would silently cascade-delete its emails' classification rows, not throw. The initial claim was an assumption made without reading the file, and would have been a wrong "reason it's safe not to build delete" if repeated uncorrected.
+
+**How it was caught:**
+Manual review — reading the actual schema file before finalizing the plan, rather than trusting the first-pass reasoning about FK behavior.
+
+**The fix:**
+Corrected the plan's stated rationale to reflect the real cascade behavior before any code was written; bucket deletion remains out of scope for Phase 4 (not required by the assignment), but the documented reasoning is now accurate.
+
+**Why it matters:**
+A plan's claims about existing code are only as good as whether they were actually verified against the file — this is the same "read it, don't guess it" discipline the production-quality bar expects from the code itself.
+
+### [Phase 4] — `exactOptionalPropertyTypes` rejected `exit={undefined}` when adding reduced-motion support — 2026-07-15
+**What Claude Code generated first:**
+Adding a `useReducedMotion()` gate to `EmailCard.tsx`'s Framer Motion props, the exit animation was written as `exit={reduceMotion ? undefined : { opacity: 0 }}`.
+
+**What was wrong / the risk:**
+The repo's `tsconfig` has `exactOptionalPropertyTypes: true`, under which explicitly passing `undefined` to an optional prop is a different (rejected) type than omitting the prop entirely — `tsc` failed with `Type 'undefined' is not assignable to type 'TargetAndTransition | VariantLabels'`.
+
+**How it was caught:**
+Typecheck (`npm run typecheck -w apps/web`).
+
+**The fix:**
+Changed the reduced-motion branch to a no-op transition (`{ opacity: 1 }`) instead of `undefined`, so the prop's type is always a valid `TargetAndTransition`.
+
+**Why it matters:**
+Small, mechanical, and exactly what strict compiler flags are for — caught before it ever reached a browser, consistent with this repo's pattern of `noUncheckedIndexedAccess`/`exactOptionalPropertyTypes` paying for themselves (see the Phase 2 nullable-confidence entry above).
