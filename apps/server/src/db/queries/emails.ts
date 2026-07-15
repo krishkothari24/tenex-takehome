@@ -55,3 +55,17 @@ export async function countEmails(userId: string) {
   const rows = await db.select({ id: emails.id }).from(emails).where(eq(emails.userId, userId));
   return rows.length;
 }
+
+/** All of a user's emails, metadata + snippet only — the input shape the classifier expects. */
+export async function listEmailsForClassification(userId: string) {
+  return db
+    .select({
+      id: emails.id,
+      subject: emails.subject,
+      fromAddress: emails.fromAddress,
+      snippet: emails.snippet,
+    })
+    .from(emails)
+    .where(eq(emails.userId, userId))
+    .orderBy(desc(emails.internalDate));
+}

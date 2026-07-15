@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { db } from '../client.js';
 import { users } from '../schema.js';
 
@@ -47,6 +47,16 @@ export async function upsertUser(input: UpsertUserInput) {
 export async function findUserById(id: string) {
   const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1);
   return row ?? null;
+}
+
+export async function findUserByEmail(email: string) {
+  const [row] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return row ?? null;
+}
+
+/** For dev tooling (the classify:dev script) — pick a user to operate on. */
+export async function listUsers() {
+  return db.select({ id: users.id, email: users.email }).from(users).orderBy(desc(users.createdAt));
 }
 
 export async function updateUserTokens(

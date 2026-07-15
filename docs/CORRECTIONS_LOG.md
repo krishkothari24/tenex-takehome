@@ -65,3 +65,35 @@ Both files now resolve the repo-root `.env` path explicitly from `import.meta.ur
 
 **Why it matters:**
 This is exactly the kind of "works on the author's machine, breaks for anyone who runs it differently" bug the production-quality bar calls out — caught by actually running the commands end-to-end rather than trusting that the code compiled.
+
+### [Phase 2] — Cost-guardrail `--confirm` flag was swallowed by the root npm passthrough — 2026-07-14
+**What Claude Code generated first:**
+The classify/eval scripts gate real API spend behind a `--confirm` flag (dry-run by default), and the root `package.json` aliased them as `npm run eval -w apps/server` (and likewise `classify:dev`).
+
+**What was wrong / the risk:**
+`npm run eval -- --confirm` forwarded `--confirm` to the *inner* `npm run eval -w apps/server`, where npm consumed it as an unknown CLI config (`npm warn Unknown cli config "--confirm"`) instead of passing it to the script. The confirmed/paid path silently ran as a dry run. For a spend gate this is a real hazard in either direction — a `--confirm` that's silently dropped (or, worse, silently honored) defeats the guardrail.
+
+**How it was caught:**
+Runtime — running the dry-run kill-switch verification end-to-end and noticing the output said "Dry run — no API calls made" even though `--confirm` was passed. Typecheck/lint could never have caught this.
+
+**The fix:**
+Appended a trailing `--` to the root passthrough scripts (`npm run eval -w apps/server --`) so npm forwards user args into the workspace script; re-ran and confirmed `--confirm` now reaches the script.
+
+**Why it matters:**
+The entire cost-guardrail story depends on `--confirm` actually being honored. A flag that's silently dropped by an npm-nesting quirk makes the safety gate meaningless, and only executing the command (not reading it) surfaced it.
+
+### [Phase 2] — Eval report called `.toFixed()` on a nullable confidence — 2026-07-14
+**What Claude Code generated first:**
+`run-eval.ts` formatted predicted confidences as `predicted.confidence.toFixed(2)` (and the same in the ambiguous-items loop).
+
+**What was wrong / the risk:**
+The shared `EmailClassification.confidence` is `number | null` — it is null for the `unclassified` state (a failed batch). So the report would throw at runtime precisely on an unclassified result, i.e. on the failure branch §5.8 requires to degrade gracefully rather than crash.
+
+**How it was caught:**
+Typecheck (`TS18047: 'predicted.confidence' is possibly 'null'`).
+
+**The fix:**
+Null-guarded both call sites (`confidence != null ? \` conf=${…}\` : ''`).
+
+**Why it matters:**
+A null-unsafe formatter on the unclassified path would crash the eval/report on the very case the pipeline is designed to surface safely — the strict-mode + `noUncheckedIndexedAccess` config paid for itself here.
