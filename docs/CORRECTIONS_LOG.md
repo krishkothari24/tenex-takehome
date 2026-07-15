@@ -161,3 +161,19 @@ Changed the reduced-motion branch to a no-op transition (`{ opacity: 1 }`) inste
 
 **Why it matters:**
 Small, mechanical, and exactly what strict compiler flags are for — caught before it ever reached a browser, consistent with this repo's pattern of `noUncheckedIndexedAccess`/`exactOptionalPropertyTypes` paying for themselves (see the Phase 2 nullable-confidence entry above).
+
+### [Phase 5] — `apps/web` typecheck failed against a stale `packages/shared/dist` after adding `isAmbiguous` — 2026-07-15
+**What Claude Code generated first:**
+Added `isAmbiguous` to `emailWithClassificationSchema` in `packages/shared/src/schemas/inbox.ts` and immediately ran `npm run typecheck` from the repo root.
+
+**What was wrong / the risk:**
+`apps/web` resolves `@inbox-concierge/shared` against the workspace's built `dist/` output, not `src/` directly, so `EmailCard.tsx`'s new `email.isAmbiguous` read failed with `TS2339: Property 'isAmbiguous' does not exist` even though the source schema was already correct — the compiled type declarations just hadn't been regenerated yet. Easy to misdiagnose as a bug in the new frontend code instead of a stale build artifact.
+
+**How it was caught:**
+Typecheck (`npm run typecheck`), then traced the mismatch back to `packages/shared/dist/schemas/inbox.d.ts` still reflecting the pre-edit schema.
+
+**The fix:**
+Ran `npm run build -w packages/shared` to regenerate `dist/` before re-running typecheck across the monorepo; passed clean afterward. No source code changed.
+
+**Why it matters:**
+A monorepo workspace boundary (`src` vs. built `dist`) can produce a typecheck failure that looks like an application bug but is actually a build-order gotcha — worth remembering (and worth eventually scripting as a `pretypecheck` step) any time a shared-package schema changes.

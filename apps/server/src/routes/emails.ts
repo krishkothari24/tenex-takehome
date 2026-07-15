@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ClassificationStatus, EmailsResponse } from '@inbox-concierge/shared';
 import { listEmailsWithClassification } from '../db/queries/classifications.js';
+import { isAmbiguousFromPersisted } from '../services/classifier/index.js';
 
 export default async function emailsRoutes(fastify: FastifyInstance) {
   fastify.get('/api/emails', { preHandler: fastify.requireAuth }, async (request, reply) => {
@@ -19,6 +20,7 @@ export default async function emailsRoutes(fastify: FastifyInstance) {
         confidence: row.confidence,
         justification: row.justification,
         status: row.status as ClassificationStatus | null,
+        isAmbiguous: row.status === null ? null : isAmbiguousFromPersisted(row.confidence, row.secondaryBucket !== null),
       })),
     };
     reply.send(response);

@@ -18,7 +18,7 @@ export {
   BatchClassificationError,
 } from './errors.js';
 export { classificationBatchSchema, truncateSubject, truncateSnippet } from './validation.js';
-export { deriveAmbiguity } from './derive.js';
+export { deriveAmbiguity, isAmbiguousFromPersisted } from './derive.js';
 export type {
   ClassifierEmail,
   BucketDef,

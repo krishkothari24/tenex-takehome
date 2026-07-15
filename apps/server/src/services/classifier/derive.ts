@@ -22,3 +22,16 @@ export function deriveAmbiguity(input: AmbiguityInput): AmbiguityResult {
   const isAmbiguous = input.confidence < AMBIGUITY_THRESHOLD || secondaryBucket !== null;
   return { secondaryBucket, isAmbiguous };
 }
+
+/**
+ * Read-path counterpart to `deriveAmbiguity`, for rows already persisted in `classification_results`
+ * (`GET /api/emails`). `confidence`/`secondaryBucketId` are already the tie-broken values written by
+ * the pipeline (a duplicate secondary was already dropped at write time), so this only needs to
+ * re-apply the threshold — kept as a separate exported function (rather than storing a redundant
+ * `is_ambiguous` column) so the derivation has one source of truth if `AMBIGUITY_THRESHOLD` changes.
+ * `null` confidence (email not yet classified, or classification failed) is never ambiguous.
+ */
+export function isAmbiguousFromPersisted(confidence: number | null, hasSecondaryBucket: boolean): boolean {
+  if (confidence === null) return false;
+  return confidence < AMBIGUITY_THRESHOLD || hasSecondaryBucket;
+}

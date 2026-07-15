@@ -1,4 +1,5 @@
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useReducedMotion } from 'framer-motion';
 import type { DashboardAnalytics } from '@inbox-concierge/shared';
 
 const FALLBACK_COLOR = '#64748B'; // matches the board's own "Unsorted" dot fallback
@@ -14,6 +15,7 @@ const GRID_COLOR = '#1e293b'; // slate-800 — matches the board's card border, 
  */
 export function VolumeBreakdownChart({ data }: { data: DashboardAnalytics['volumeByBucket'] }) {
   const sorted = [...data].sort((a, b) => b.count - a.count);
+  const reduceMotion = useReducedMotion();
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -35,7 +37,7 @@ export function VolumeBreakdownChart({ data }: { data: DashboardAnalytics['volum
               labelStyle={{ color: '#e2e8f0' }}
               itemStyle={{ color: '#cbd5e1' }}
             />
-            <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20}>
+            <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20} isAnimationActive={!reduceMotion}>
               {sorted.map((entry) => (
                 <Cell key={entry.bucket} fill={entry.color ?? FALLBACK_COLOR} />
               ))}

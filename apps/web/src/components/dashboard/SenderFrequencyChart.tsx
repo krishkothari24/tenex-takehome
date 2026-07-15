@@ -1,4 +1,5 @@
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useReducedMotion } from 'framer-motion';
 import type { DashboardAnalytics } from '@inbox-concierge/shared';
 
 // A single flat hue for this ranked single-series chart (dataviz skill's sequential blue,
@@ -11,6 +12,7 @@ const GRID_COLOR = '#1e293b';
 /** "Top senders by volume" (build guide §6). Horizontal bar, sorted desc, top 8-10 — a single
  *  ranked series needs no legend (the title already names what's plotted). */
 export function SenderFrequencyChart({ data }: { data: DashboardAnalytics['topSenders'] }) {
+  const reduceMotion = useReducedMotion();
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
       <h3 className="text-sm font-semibold text-slate-200">Top senders</h3>
@@ -31,7 +33,13 @@ export function SenderFrequencyChart({ data }: { data: DashboardAnalytics['topSe
               labelStyle={{ color: '#e2e8f0' }}
               itemStyle={{ color: '#cbd5e1' }}
             />
-            <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={20} fill={SENDER_BAR_COLOR} />
+            <Bar
+              dataKey="count"
+              radius={[0, 4, 4, 0]}
+              maxBarSize={20}
+              fill={SENDER_BAR_COLOR}
+              isAnimationActive={!reduceMotion}
+            />
           </BarChart>
         </ResponsiveContainer>
       </div>

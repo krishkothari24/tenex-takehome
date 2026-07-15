@@ -88,6 +88,7 @@ export default function App() {
           confidence: update.confidence,
           justification: update.justification,
           status: update.status,
+          isAmbiguous: update.isAmbiguous,
         };
       }),
     );
@@ -167,7 +168,10 @@ export default function App() {
     return (
       <Centered>
         <p className="text-red-400">{errorMessage ?? 'Something went wrong.'}</p>
-        <button onClick={() => void loadBoard()} className="mt-4 rounded-md bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-400">
+        <button
+          onClick={() => void loadBoard()}
+          className="mt-4 rounded-md bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+        >
           Try again
         </button>
       </Centered>
@@ -181,7 +185,10 @@ export default function App() {
           <h1 className="text-2xl font-semibold">Inbox Concierge</h1>
           <div className="flex items-center gap-3">
             <span className="text-sm text-slate-400">{user.email}</span>
-            <button onClick={signOut} className="text-sm text-slate-400 underline hover:text-slate-200">
+            <button
+              onClick={signOut}
+              className="rounded text-sm text-slate-400 underline hover:text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+            >
               Sign out
             </button>
           </div>
@@ -201,21 +208,23 @@ export default function App() {
           ))}
         </div>
 
-        {classify.status === 'running' && (
-          <p className="text-sm text-slate-400">
-            Sorting your inbox…{' '}
-            {classify.batchCount > 0 && `batch ${classify.completedBatches} of ${classify.batchCount}`}
-          </p>
-        )}
-        {classify.status === 'error' && classify.errorMessage && (
-          <p className="text-sm text-red-400">{classify.errorMessage}</p>
-        )}
-        {classify.unclassifiedEmailIds.length > 0 && (
-          <p className="text-sm text-amber-400">
-            {classify.unclassifiedEmailIds.length} email{classify.unclassifiedEmailIds.length === 1 ? '' : 's'}{' '}
-            couldn&rsquo;t be classified — see the Unsorted column.
-          </p>
-        )}
+        <div aria-live="polite" role="status" className="space-y-1">
+          {classify.status === 'running' && (
+            <p className="text-sm text-slate-400">
+              Sorting your inbox…{' '}
+              {classify.batchCount > 0 && `batch ${classify.completedBatches} of ${classify.batchCount}`}
+            </p>
+          )}
+          {classify.status === 'error' && classify.errorMessage && (
+            <p className="text-sm text-red-400">{classify.errorMessage}</p>
+          )}
+          {classify.unclassifiedEmailIds.length > 0 && (
+            <p className="text-sm text-amber-400">
+              {classify.unclassifiedEmailIds.length} email{classify.unclassifiedEmailIds.length === 1 ? '' : 's'}{' '}
+              couldn&rsquo;t be classified — see the Unsorted column.
+            </p>
+          )}
+        </div>
 
         {view === 'dashboard' ? (
           analyticsError ? (
@@ -223,7 +232,7 @@ export default function App() {
               <p className="text-sm text-red-400">{analyticsError}</p>
               <button
                 onClick={() => void loadAnalytics()}
-                className="mt-3 rounded-md bg-indigo-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-400"
+                className="mt-3 rounded-md bg-indigo-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
               >
                 Try again
               </button>
