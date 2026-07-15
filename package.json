@@ -1,0 +1,32 @@
+{
+  "name": "inbox-concierge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/web",
+    "apps/server",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "concurrently -n shared,server,web -c blue,green,magenta \"npm run dev -w packages/shared\" \"npm run dev -w apps/server\" \"npm run dev -w apps/web\"",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "eslint .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:generate": "npm run db:generate -w apps/server",
+    "db:migrate": "npm run db:migrate -w apps/server"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "concurrently": "10.0.3",
+    "eslint": "9.39.5",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.7.0",
+    "prettier": "3.9.5",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.64.0"
+  }
+}
