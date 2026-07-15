@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Bucket, DashboardAnalytics, Digest, EmailWithClassification } from '@inbox-concierge/shared';
+import type {
+  Bucket,
+  DashboardAnalytics,
+  Digest,
+  EmailWithClassification,
+  SenderRuleSuggestion,
+} from '@inbox-concierge/shared';
 import { useSession } from './hooks/useSession';
 import { api } from './api/client';
 import { useClassifyStream } from './hooks/useClassifyStream';
@@ -8,12 +14,14 @@ import { useDigestStream } from './hooks/useDigestStream';
 import { BucketBoard } from './components/BucketBoard';
 import { Dashboard } from './components/Dashboard';
 import { CreateBucketForm } from './components/CreateBucketForm';
+import { DisconnectAccountButton } from './components/DisconnectAccountButton';
+import { SenderRuleSuggestionBanner } from './components/SenderRuleSuggestion';
 
 type Phase = 'checking' | 'no-emails' | 'syncing' | 'sync-error' | 'board-error' | 'board';
 type View = 'dashboard' | 'board';
 
 export default function App() {
-  const { user, loading, signIn, signOut } = useSession();
+  const { user, loading, signIn, signOut, disconnectAndDelete } = useSession();
   const [phase, setPhase] = useState<Phase>('checking');
   const [view, setView] = useState<View>('dashboard');
   const [buckets, setBuckets] = useState<Bucket[]>([]);
@@ -22,6 +30,7 @@ export default function App() {
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [digest, setDigest] = useState<Digest | null>(null);
+  const [ruleSuggestions, setRuleSuggestions] = useState<SenderRuleSuggestion[]>([]);
   const classify = useClassifyStream();
   const digestStream = useDigestStream();
 
@@ -77,6 +86,18 @@ export default function App() {
     }
   }, []);
 
+  // Refetched after every manual move (not on initial load) — this is a signal that only exists
+  // once the user has corrected at least a few emails, so an eager fetch on every page load would
+  // almost always return nothing.
+  const loadRuleSuggestions = useCallback(async () => {
+    try {
+      const { suggestions } = await api.getRuleSuggestions();
+      setRuleSuggestions(suggestions);
+    } catch {
+      // Non-critical — worst case the suggestion banner just doesn't appear this session.
+    }
+  }, []);
+
   useEffect(() => {
     if (!user || bootstrappedForUserId.current === user.id) return;
     bootstrappedForUserId.current = user.id;
@@ -112,6 +133,8 @@ export default function App() {
           justification: update.justification,
           status: update.status,
           isAmbiguous: update.isAmbiguous,
+          hasDeadline: update.hasDeadline,
+          deadlineText: update.deadlineText,
         };
       }),
     );
@@ -125,6 +148,38 @@ export default function App() {
     const { bucket } = await api.createBucket(name);
     setBuckets((prev) => [...prev, bucket]);
     void classify.start(api.reclassifyStream);
+  }
+
+  // The manual correction (build guide §5.7's feedback-loop seed) — merges the server's response
+  // straight into local state (it already reflects the cleared justification/confidence, same
+  // shape GET /api/emails returns) and refetches rule suggestions, since this correction might be
+  // the one that crosses the "always do this?" threshold for its sender.
+  async function handleMoveEmail(emailId: string, bucketId: string) {
+    try {
+      const { email } = await api.moveEmailBucket(emailId, bucketId);
+      setEmails((prev) => prev.map((e) => (e.emailId === emailId ? email : e)));
+      void loadRuleSuggestions();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Could not move that email.');
+    }
+  }
+
+  // Accepting a suggestion also applies it to every already-synced email from that sender
+  // (server-side), so reload the board to reflect those, not just remove the banner.
+  async function handleAcceptRule(suggestion: SenderRuleSuggestion) {
+    try {
+      await api.createRule(suggestion.fromAddress, suggestion.bucketId);
+      setRuleSuggestions((prev) => prev.filter((s) => s.fromAddress !== suggestion.fromAddress));
+      await loadBoard();
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Could not create that rule.');
+    }
+  }
+
+  // Client-side only, by design (see SenderRuleSuggestion.tsx doc comment) — no "don't ask again"
+  // persistence for a signal this small.
+  function handleDismissRule(suggestion: SenderRuleSuggestion) {
+    setRuleSuggestions((prev) => prev.filter((s) => s.fromAddress !== suggestion.fromAddress));
   }
 
   // Refresh the dashboard once a (re)classify run finishes, since bucket volumes/time-cost/
@@ -208,6 +263,7 @@ export default function App() {
           <h1 className="text-2xl font-semibold">Inbox Concierge</h1>
           <div className="flex items-center gap-3">
             <span className="text-sm text-slate-400">{user.email}</span>
+            <DisconnectAccountButton onConfirm={() => void disconnectAndDelete()} />
             <button
               onClick={signOut}
               className="rounded text-sm text-slate-400 underline hover:text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
@@ -275,7 +331,19 @@ export default function App() {
         ) : (
           <>
             <CreateBucketForm onCreate={handleCreateBucket} />
-            <BucketBoard buckets={buckets} emails={emails} />
+            {ruleSuggestions.length > 0 && (
+              <div className="space-y-2">
+                {ruleSuggestions.map((suggestion) => (
+                  <SenderRuleSuggestionBanner
+                    key={suggestion.fromAddress}
+                    suggestion={suggestion}
+                    onAccept={() => void handleAcceptRule(suggestion)}
+                    onDismiss={() => handleDismissRule(suggestion)}
+                  />
+                ))}
+              </div>
+            )}
+            <BucketBoard buckets={buckets} emails={emails} onMoveEmail={handleMoveEmail} />
           </>
         )}
       </div>

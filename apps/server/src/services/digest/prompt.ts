@@ -15,6 +15,7 @@ export function buildDigestSystemPrompt(): string {
     '- `title`: a short, actionable phrase (under 12 words), e.g. "Reply to Sarah about the signed contract."',
     '- `why`: ONE sentence grounded in something concrete from that specific email (its deadline text, subject, or classifier note) — not a generic restatement.',
     '- `urgency`: "high" for an explicit deadline or a repeatedly-unanswered important thread, "medium" for other important/frequent-sender items, "low" otherwise.',
+    '- For "high" urgency items ONLY, also write `draftReply`: a short (2-4 sentence) professional reply the user could send as-is or edit. Ground it ONLY in the subject/snippet/classifier note given below — never invent names, dates, numbers, or commitments not present in that content. This is a draft for the user to review and send themselves; never imply it has already been sent. For "medium"/"low" urgency items, `draftReply` MUST be null.',
     '- Record everything in a single call to the provided tool.',
   ].join('\n');
 }
@@ -66,8 +67,13 @@ export function buildDigestTool(validEmailIds: string[]): Anthropic.Tool {
               title: { type: 'string', description: 'Short actionable phrase.' },
               why: { type: 'string', description: 'One sentence grounded in the email itself.' },
               urgency: { type: 'string', enum: ['high', 'medium', 'low'] },
+              draftReply: {
+                description:
+                  'A short reply draft grounded only in the given content, present only when urgency is "high"; null for "medium"/"low".',
+                anyOf: [{ type: 'string' }, { type: 'null' }],
+              },
             },
-            required: ['emailId', 'title', 'why', 'urgency'],
+            required: ['emailId', 'title', 'why', 'urgency', 'draftReply'],
           },
         },
         fyiCount: {

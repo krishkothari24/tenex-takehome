@@ -1,10 +1,12 @@
 import { motion, useReducedMotion } from 'framer-motion';
 import * as Popover from '@radix-ui/react-popover';
-import type { EmailWithClassification } from '@inbox-concierge/shared';
+import type { Bucket, EmailWithClassification } from '@inbox-concierge/shared';
 
 interface EmailCardProps {
   email: EmailWithClassification;
   bucketColor: string | null;
+  buckets: Bucket[];
+  onMove: (emailId: string, bucketId: string) => void;
 }
 
 /**
@@ -18,8 +20,12 @@ interface EmailCardProps {
  * native `title` tooltip) rather than hand-rolled disclosure logic, and ambiguous classifications
  * (build guide §5.5) get a subtle always-visible ring around the bucket dot — the ring is the
  * *fact* of ambiguity, the popover is the *reason*, per §5.4's "hover/click to see why."
+ *
+ * The "move to a different bucket" affordance (a feedback-loop seed) is a third icon in the same
+ * row rather than drag-and-drop — full keyboard/screen-reader support for free, matching the a11y
+ * investment the rest of this card already makes, at a fraction of the build cost.
  */
-export function EmailCard({ email, bucketColor }: EmailCardProps) {
+export function EmailCard({ email, bucketColor, buckets, onMove }: EmailCardProps) {
   const isUnclassified = email.status === 'unclassified';
   const isAmbiguous = email.isAmbiguous === true;
   const reduceMotion = useReducedMotion();
@@ -106,6 +112,58 @@ export function EmailCard({ email, bucketColor }: EmailCardProps) {
                   {isAmbiguous && email.secondaryBucket && (
                     <p className="mt-1.5 text-violet-300">Also close to: {email.secondaryBucket}</p>
                   )}
+                  <Popover.Arrow className="fill-slate-700" />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          )}
+          {buckets.length > 0 && (
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label="Move to a different bucket"
+                  className="-m-1 shrink-0 rounded p-1.5 text-slate-500 hover:text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                    <path
+                      d="M2.5 8h9M8 4.5l3.5 3.5-3.5 3.5"
+                      stroke="currentColor"
+                      strokeWidth="1.3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  side="top"
+                  align="end"
+                  sideOffset={6}
+                  collisionPadding={12}
+                  className="z-50 w-48 rounded-md border border-slate-700 bg-slate-800 p-1 text-xs text-slate-200 shadow-lg"
+                >
+                  <p className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                    Move to
+                  </p>
+                  {buckets.map((bucket) => (
+                    <Popover.Close asChild key={bucket.id}>
+                      <button
+                        type="button"
+                        onClick={() => onMove(email.emailId, bucket.id)}
+                        disabled={bucket.name === email.bucket}
+                        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-slate-700 disabled:pointer-events-none disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+                      >
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: bucket.color ?? '#64748B' }}
+                          aria-hidden="true"
+                        />
+                        {bucket.name}
+                      </button>
+                    </Popover.Close>
+                  ))}
                   <Popover.Arrow className="fill-slate-700" />
                 </Popover.Content>
               </Popover.Portal>

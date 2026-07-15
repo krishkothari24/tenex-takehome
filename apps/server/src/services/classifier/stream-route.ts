@@ -1,8 +1,9 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { ClassifyStreamEvent } from '@inbox-concierge/shared';
+import type { ClassifyStreamEvent, EmailClassification } from '@inbox-concierge/shared';
 import { listEmailsForClassification } from '../../db/queries/emails.js';
 import { seedDefaultBuckets } from '../../db/queries/buckets.js';
-import { markEmailsUnclassified, upsertClassification } from '../../db/queries/classifications.js';
+import { markEmailsUnclassified, setManualBucket, upsertClassification } from '../../db/queries/classifications.js';
+import { listSenderRulesForUser } from '../../db/queries/sender-rules.js';
 import {
   classifyEmails,
   CostCeilingExceededError,
@@ -40,10 +41,32 @@ export async function runClassifyStreamRoute({
 }: RunClassifyStreamRouteParams): Promise<void> {
   const bucketRows = await seedDefaultBuckets(userId);
   const nameToId = new Map(bucketRows.map((b) => [b.name, b.id]));
+  const idToName = new Map(bucketRows.map((b) => [b.id, b.name]));
   const buckets: BucketDef[] = bucketRows.map((b) => ({ name: b.name, description: b.description }));
 
   const allEmails = await listEmailsForClassification(userId);
-  const emails: ClassifierEmail[] = allEmails.slice(0, MAX_EMAILS_PER_RUN);
+  const rules = await listSenderRulesForUser(userId);
+  const ruleBucketByAddress = new Map(rules.map((r) => [r.fromAddress, r.bucketId]));
+
+  // Manually-corrected emails are never re-sent to Haiku — their bucket is a human decision, not
+  // the model's to revise on the next full re-run (see classifications.ts's `setManualBucket`
+  // doc comment). Sender-ruled emails are assigned directly and deterministically, at zero API
+  // cost, before the LLM batch even runs. Both skip the model entirely, not just get protected
+  // after the fact.
+  const overridden = allEmails.filter((e) => e.isManualOverride === true);
+  const ruled = allEmails.filter(
+    (e) => e.isManualOverride !== true && e.fromAddress !== null && ruleBucketByAddress.has(e.fromAddress),
+  );
+  const remaining = allEmails.filter(
+    (e) => e.isManualOverride !== true && !(e.fromAddress !== null && ruleBucketByAddress.has(e.fromAddress)),
+  );
+  void overridden; // intentionally untouched — no DB write, no SSE event, board already shows them correctly
+
+  // The per-run cap bounds LLM volume/cost (§5.8), so it applies to the emails actually sent to
+  // Haiku — overridden/ruled emails cost nothing and were already excluded above.
+  const emails: ClassifierEmail[] = remaining
+    .slice(0, MAX_EMAILS_PER_RUN)
+    .map((e) => ({ id: e.id, subject: e.subject, fromAddress: e.fromAddress, snippet: e.snippet }));
 
   reply.hijack();
   reply.raw.writeHead(200, {
@@ -109,9 +132,44 @@ export async function runClassifyStreamRoute({
       },
     });
 
+    // Sender-ruled emails, applied after the real batches so this reads as "one more batch" in
+    // the frontend's progress indicator rather than a batchCount that looks inconsistent partway
+    // through the real run. No LLM call — deterministic, grounded in the rule the user accepted.
+    const ruledClassifications: EmailClassification[] = [];
+    for (const e of ruled) {
+      const bucketId = ruleBucketByAddress.get(e.fromAddress!)!;
+      const bucketName = idToName.get(bucketId) ?? null;
+      await setManualBucket({ emailId: e.id, bucketId });
+      ruledClassifications.push({
+        emailId: e.id,
+        bucket: bucketName,
+        secondaryBucket: null,
+        confidence: null,
+        justification: bucketName
+          ? `Matches your rule: mail from ${e.fromAddress} always goes to ${bucketName}.`
+          : null,
+        isAmbiguous: false,
+        status: 'classified',
+        estimatedReadMinutes: e.estimatedReadMinutes,
+        hasDeadline: e.hasDeadline,
+        deadlineText: e.deadlineText,
+      });
+    }
+    if (ruledClassifications.length > 0) {
+      batchCount += 1;
+      send({
+        type: 'batch',
+        batchIndex: batchCount - 1,
+        batchCount,
+        status: 'ok',
+        classifications: ruledClassifications,
+        unclassifiedEmailIds: [],
+      });
+    }
+
     send({
       type: 'done',
-      totalClassified: result.classifications.length,
+      totalClassified: result.classifications.length + ruledClassifications.length,
       totalUnclassified: result.unclassifiedEmailIds.length,
       actualCostUsd: result.actualCostUsd,
       durationMs: result.durationMs,
@@ -124,6 +182,8 @@ export async function runClassifyStreamRoute({
         totalUnclassified: result.unclassifiedEmailIds.length,
         actualCostUsd: result.actualCostUsd,
         durationMs: result.durationMs,
+        overriddenCount: overridden.length,
+        ruledCount: ruled.length,
       },
       `${runLabel} run completed`,
     );

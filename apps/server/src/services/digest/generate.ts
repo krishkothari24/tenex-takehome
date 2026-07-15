@@ -14,6 +14,7 @@ export interface DigestActionItem {
   title: string;
   why: string;
   urgency: 'high' | 'medium' | 'low';
+  draftReply: string | null;
 }
 
 export interface GeneratedDigest {

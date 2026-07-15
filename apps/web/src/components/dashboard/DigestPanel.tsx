@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Digest } from '@inbox-concierge/shared';
 import type { DigestStatus } from '../../hooks/useDigestStream';
 
@@ -26,6 +27,16 @@ export function DigestPanel({
   errorMessage: string | null;
   onGenerate: () => void;
 }) {
+  const [copiedEmailId, setCopiedEmailId] = useState<string | null>(null);
+
+  // Copy-only, never sent from here — the app only holds `gmail.readonly`, so a "Send" button
+  // isn't just deferred, it's out of scope by design (see digest/prompt.ts's system-prompt rule).
+  async function handleCopy(emailId: string, draftReply: string) {
+    await navigator.clipboard.writeText(draftReply);
+    setCopiedEmailId(emailId);
+    setTimeout(() => setCopiedEmailId((prev) => (prev === emailId ? null : prev)), 2000);
+  }
+
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-6">
       <div className="flex items-start justify-between gap-4">
@@ -63,9 +74,17 @@ export function DigestPanel({
                   className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${URGENCY_STYLES[item.urgency]}`}
                   aria-hidden="true"
                 />
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-100">{item.title}</p>
                   <p className="mt-0.5 text-xs text-slate-500">{item.why}</p>
+                  {item.draftReply && (
+                    <button
+                      onClick={() => void handleCopy(item.emailId, item.draftReply!)}
+                      className="mt-1.5 rounded px-1.5 py-0.5 text-xs font-medium text-indigo-300 hover:text-indigo-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+                    >
+                      {copiedEmailId === item.emailId ? 'Copied!' : 'Copy draft reply'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))

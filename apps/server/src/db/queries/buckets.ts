@@ -64,6 +64,17 @@ export async function createBucket(
   return toBucket(row!);
 }
 
+/** Ownership check for a target bucket — used by manual move and sender-rule creation so a
+ *  client-supplied bucketId can never point at another user's bucket. */
+export async function findBucketForUser(id: string, userId: string): Promise<Bucket | null> {
+  const [row] = await db
+    .select()
+    .from(buckets)
+    .where(and(eq(buckets.id, id), eq(buckets.userId, userId)))
+    .limit(1);
+  return row ? toBucket(row) : null;
+}
+
 /** Only removes a user's own custom bucket. Default buckets are protected from deletion. */
 export async function deleteBucket(id: string, userId: string): Promise<void> {
   await db

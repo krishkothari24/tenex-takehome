@@ -2,11 +2,14 @@ import type {
   BucketsResponse,
   ClassifyStreamEvent,
   CreateBucketResponse,
+  CreateRuleResponse,
   DashboardAnalytics,
   DigestResponse,
   DigestStreamEvent,
   EmailsResponse,
   InboxSyncResponse,
+  MoveEmailBucketResponse,
+  RuleSuggestionsResponse,
   SessionUser,
 } from '@inbox-concierge/shared';
 
@@ -33,6 +36,7 @@ export class UnauthenticatedError extends Error {
 export const api = {
   me: () => request<SessionUser>('/auth/me'),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  disconnectAndDelete: () => request<void>('/api/account/disconnect', { method: 'POST' }),
   syncInbox: () => request<InboxSyncResponse>('/api/inbox/sync'),
   listBuckets: () => request<BucketsResponse>('/api/buckets'),
   listEmails: () => request<EmailsResponse>('/api/emails'),
@@ -47,6 +51,19 @@ export const api = {
   reclassifyStream: (signal: AbortSignal | null = null) => streamPost<ClassifyStreamEvent>('/api/reclassify', signal),
   getDigest: () => request<DigestResponse>('/api/digest'),
   digestStream: (signal: AbortSignal | null = null) => streamPost<DigestStreamEvent>('/api/digest', signal),
+  moveEmailBucket: (emailId: string, bucketId: string) =>
+    request<MoveEmailBucketResponse>(`/api/emails/${encodeURIComponent(emailId)}/bucket`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bucketId }),
+    }),
+  getRuleSuggestions: () => request<RuleSuggestionsResponse>('/api/rules/suggestions'),
+  createRule: (fromAddress: string, bucketId: string) =>
+    request<CreateRuleResponse>('/api/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromAddress, bucketId }),
+    }),
 };
 
 /**

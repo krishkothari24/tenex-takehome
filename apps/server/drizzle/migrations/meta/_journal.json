@@ -36,6 +36,13 @@
       "when": 1784139529847,
       "tag": "0004_weekly_digest",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784144652942,
+      "tag": "0005_manual_overrides_and_rules",
+      "breakpoints": true
     }
   ]
 }

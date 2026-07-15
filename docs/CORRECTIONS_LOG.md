@@ -193,3 +193,19 @@ Attempted an immediate real (`--confirm`, no dry-run) re-classify to regenerate 
 
 **Why it matters:**
 `git status` before a destructive git command is the established habit for code; this is the same discipline applied to a database — check what a "$0, safe, exercises the plumbing" command actually does to *existing* data before running it against anything that isn't disposable seed data. A dry-run flag lowering *API* cost to zero does not mean the command is non-destructive to the database.
+
+### [Phase 7] — Live reclassify never updated a card's deadline badge in the UI — 2026-07-15
+**What Claude Code generated first:**
+Phase 6's `App.tsx` classify-stream merge effect (`prev.map(...)` around the `isAmbiguous` field) copied `bucket`, `secondaryBucket`, `confidence`, `justification`, `status`, and `isAmbiguous` from each incoming `EmailClassification` onto local email state, but not `hasDeadline`/`deadlineText` — even though those fields were added to the same `EmailClassification` type in that same phase.
+
+**What was wrong / the risk:**
+A live classify or reclassify run would persist the new `hasDeadline`/`deadlineText` correctly to Postgres (via `upsertClassification`) and the SSE event carried the right values, but the deadline badge on `EmailCard` wouldn't update until the next full page reload (`GET /api/emails`) — the exact "looks right in the DB, wrong on screen" gap a reviewer reading the diff wouldn't catch either, since the merge effect's shape looked complete at a glance.
+
+**How it was caught:**
+Discovered while building Feature 1's sender-rule-application path, which emits a synthetic `batch` SSE event carrying a ruled email's *existing* `hasDeadline`/`deadlineText` so the board can show it without a reload — tracing that path through the merge effect surfaced that the two fields were never being read from `update` at all.
+
+**The fix:**
+Added `hasDeadline: update.hasDeadline` and `deadlineText: update.deadlineText` to the merge effect's returned object, so both live classify and reclassify runs update the badge immediately, matching every other classification-derived field.
+
+**Why it matters:**
+The same "verify by tracing an actual data path end to end" discipline that caught the Phase 3 StrictMode double-classify bug — a field added to a shared type doesn't automatically reach every consumer of that type, and nothing short of tracing a concrete new code path (here, the sender-rule feature) surfaced that this one had been silently dropped since the field was introduced.

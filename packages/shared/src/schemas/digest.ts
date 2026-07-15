@@ -13,6 +13,9 @@ export const digestActionItemSchema = z.object({
   title: z.string(),
   why: z.string(),
   urgency: digestUrgencySchema,
+  /** A short reply the user can copy and send themselves — never auto-sent (the app only holds
+   *  `gmail.readonly`). Present only for "high" urgency items; null otherwise. */
+  draftReply: z.string().nullable(),
 });
 export type DigestActionItem = z.infer<typeof digestActionItemSchema>;
 

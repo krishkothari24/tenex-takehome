@@ -44,6 +44,17 @@ export async function exchangeCodeForTokens(code: string): Promise<ExchangedToke
   };
 }
 
+/**
+ * Revokes a Google OAuth token (POSTs to Google's `/revoke` endpoint under the hood, via
+ * google-auth-library's `OAuth2Client.revokeToken`). Best-effort by design — the caller should
+ * still delete local data even if Google's revoke call fails, since "delete my data" is a promise
+ * about this app's own storage, not a guarantee it can force Google's side to succeed.
+ */
+export async function revokeGoogleAccess(accessToken: string): Promise<void> {
+  const client = createOAuthClient();
+  await client.revokeToken(accessToken);
+}
+
 export interface GoogleUserInfo {
   googleId: string;
   email: string;
