@@ -15,6 +15,13 @@
       "when": 1784081548489,
       "tag": "0001_goofy_obadiah_stane",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784126893093,
+      "tag": "0002_superb_vector",
+      "breakpoints": true
     }
   ]
 }

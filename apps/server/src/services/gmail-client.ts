@@ -4,6 +4,7 @@ import pRetry from 'p-retry';
 import { updateUserTokens, markUserRevoked } from '../db/queries/users.js';
 import { decryptSecret, encryptSecret } from './crypto.js';
 import { createOAuthClient } from './google-oauth.js';
+import { extractEmailAddress } from './email-address.js';
 
 const MAX_THREADS = 200;
 const LIST_PAGE_SIZE = 100;
@@ -19,6 +20,7 @@ export class GmailReauthRequiredError extends Error {
 
 interface UserTokenRecord {
   id: string;
+  email: string;
   encryptedAccessToken: string;
   encryptedRefreshToken: string | null;
   tokenExpiry: Date;
@@ -71,6 +73,10 @@ export interface FetchedThread {
   fromAddress: string | null;
   snippet: string | null;
   internalDate: Date | null;
+  /** Count of messages in the thread and whether any is from the user — powers the dashboard's
+   *  "unanswered VIP" heuristic. Computed from data `threads.get` already returns, zero extra calls. */
+  messageCount: number;
+  hasReplyFromUser: boolean;
 }
 
 export interface FetchThreadsResult {
@@ -140,6 +146,14 @@ export async function fetchRecentThreadsMetadata(user: UserTokenRecord): Promise
               }
               const headers = message.payload?.headers;
               const dateHeader = decodeHeader(headers, 'Date');
+
+              const userEmailLower = user.email.toLowerCase();
+              const messageCount = data.messages?.length ?? 0;
+              const hasReplyFromUser = (data.messages ?? []).some((m) => {
+                const from = decodeHeader(m.payload?.headers, 'From');
+                return extractEmailAddress(from)?.toLowerCase() === userEmailLower;
+              });
+
               return {
                 gmailThreadId: threadId,
                 gmailMessageId: message.id,
@@ -151,6 +165,8 @@ export async function fetchRecentThreadsMetadata(user: UserTokenRecord): Promise
                   : dateHeader
                     ? new Date(dateHeader)
                     : null,
+                messageCount,
+                hasReplyFromUser,
               } satisfies FetchedThread;
             }),
           {

@@ -11,6 +11,11 @@ export const bucketSchema = z.object({
 });
 export type Bucket = z.infer<typeof bucketSchema>;
 
+export const bucketsResponseSchema = z.object({
+  buckets: z.array(bucketSchema),
+});
+export type BucketsResponse = z.infer<typeof bucketsResponseSchema>;
+
 /**
  * `classified` — the pipeline placed the email in a bucket.
  * `unclassified` — the email's batch failed even after a corrective retry; the row is
@@ -32,5 +37,11 @@ export const emailClassificationSchema = z.object({
   justification: z.string().nullable(),
   isAmbiguous: z.boolean(),
   status: classificationStatusSchema,
+  /**
+   * Minutes a busy professional would spend reading + responding to this specific email, as
+   * estimated by the classifier from its actual subject/snippet — not a fixed per-bucket average
+   * (see build guide §6's dashboard time-cost tile). Null exactly when `status` is 'unclassified'.
+   */
+  estimatedReadMinutes: z.number().min(0).max(30).nullable(),
 });
 export type EmailClassification = z.infer<typeof emailClassificationSchema>;

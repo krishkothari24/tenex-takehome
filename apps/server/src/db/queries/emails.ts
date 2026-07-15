@@ -11,9 +11,15 @@ export interface UpsertEmailInput {
   snippet: string | null;
   internalDate: Date | null;
   rawHeaders?: Record<string, string>;
+  messageCount: number | null;
+  hasReplyFromUser: boolean | null;
 }
 
-/** Idempotent — keyed on (userId, gmailThreadId), so re-running sync never duplicates rows. */
+/**
+ * Idempotent — keyed on (userId, gmailThreadId), so re-running sync never duplicates rows. Also
+ * how pre-migration rows get `messageCount`/`hasReplyFromUser` backfilled for free: a plain re-sync
+ * runs this same `onConflictDoUpdate` path with the new fields populated.
+ */
 export async function upsertEmail(input: UpsertEmailInput) {
   await db
     .insert(emails)
@@ -26,6 +32,8 @@ export async function upsertEmail(input: UpsertEmailInput) {
       snippet: input.snippet,
       internalDate: input.internalDate,
       rawHeaders: input.rawHeaders ?? null,
+      messageCount: input.messageCount,
+      hasReplyFromUser: input.hasReplyFromUser,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -37,6 +45,8 @@ export async function upsertEmail(input: UpsertEmailInput) {
         snippet: input.snippet,
         internalDate: input.internalDate,
         rawHeaders: input.rawHeaders ?? null,
+        messageCount: input.messageCount,
+        hasReplyFromUser: input.hasReplyFromUser,
         updatedAt: new Date(),
       },
     });

@@ -97,3 +97,67 @@ Null-guarded both call sites (`confidence != null ? \` conf=${…}\` : ''`).
 
 **Why it matters:**
 A null-unsafe formatter on the unclassified path would crash the eval/report on the very case the pipeline is designed to surface safely — the strict-mode + `noUncheckedIndexedAccess` config paid for itself here.
+
+### [Phase 3] — Mount effect double-fired the classify SSE call — 2026-07-15
+**What Claude Code generated first:**
+`App.tsx`'s sign-in effect (`useEffect(() => { if (!user) return; void loadBoard(); }, [user])`) called `loadBoard()` directly, which — when a synced-but-unclassified inbox is detected — kicks off `POST /api/classify`, a real, billable Anthropic API run.
+
+**What was wrong / the risk:**
+React StrictMode (enabled in `main.tsx`) intentionally double-invokes mount effects in dev to surface non-idempotent side effects. With no de-dupe guard, the effect fired `loadBoard()` twice on first mount, and the client-side `useClassifyStream` hook's `abortRef.current?.abort()` only cancels the *first* fetch client-side after the *second* has already been issued — both `POST /api/classify` requests actually reach the server. In dry-run this is free; with a real API key it would mean two concurrent `classifyEmails()` runs against the same inbox, i.e. ~2x real spend for one page load (idempotent persistence means the data ends up correct, but the tokens are still paid for twice).
+
+**How it was caught:**
+Manual review — verifying the Phase 3 SSE flow end-to-end with Playwright against a throwaway test user (`CLASSIFIER_DRY_RUN=true`, $0 cost) and inspecting the network log showed `GET /api/emails`, `GET /api/buckets`, and `POST /api/classify` each fired exactly twice on first load. Not caught by typecheck or lint — this is a runtime effect-timing bug, invisible in the diff.
+
+**The fix:**
+Added a `useRef<string | null>` (`bootstrappedForUserId`) keyed on the signed-in user's id; the mount effect no-ops if it has already bootstrapped for that user, so StrictMode's remount is a cheap no-op instead of a second real network flow. Re-verified with the same Playwright + dry-run setup: each route now fires exactly once.
+
+**Why it matters:**
+This is the same class of issue as the Phase 2 concurrency-cap correction (§8.6's canonical example) — the AI-generated code was structurally reasonable but hadn't been exercised against a real render lifecycle where "the effect can legitimately run twice" matters, and here that gap would have doubled real classification spend, not just wasted a network call.
+
+### [Phase 4] — Time-cost dashboard tile planned as a hardcoded per-bucket table — 2026-07-15
+**What Claude Code generated first:**
+The Phase 4 plan's time-cost dashboard metric ("~X hours of reading") was designed around a static constant, `BUCKET_MINUTES_PER_EMAIL: Record<string, number>` (e.g. "Important = 3 min, Promotions = 0.25 min"), summed per bucket.
+
+**What was wrong / the risk:**
+A hardcoded lookup table is exactly the kind of arbitrary, non-AI-native shortcut the build guide's own framing ("genuine LLM-engineering depth over feature count") argues against — especially in a codebase whose entire premise is an LLM classification pipeline that already reads every email's actual content. The number would have been a bucket-level guess, not grounded in what a given email actually says.
+
+**How it was caught:**
+Human rejected the plan before execution — "why not have an agent make the decision... rather than having the minutes hardcoded."
+
+**The fix:**
+Redesigned so the classifier estimates `estimatedReadMinutes` per email as one more field in the same batched Haiku tool-use call that already classifies each email (prompt.ts, validation.ts's Zod schema with a `[0,30]` value guard, threaded through `EmailClassification`, persisted on `classification_results`). Zero extra API calls; the dashboard now sums/averages real per-email model output instead of a static table.
+
+**Why it matters:**
+This is precisely the "verify and refine AI output" story the build guide asks candidates to have ready — the first plan was structurally reasonable but settled for a cheaper, less-grounded design when the harder, more AI-native version was available at no extra cost.
+
+### [Phase 4] — Assumed a missing FK cascade on `classificationResults.bucketId` — 2026-07-15
+**What Claude Code generated first:**
+While reasoning about why bucket deletion wasn't wired up, the plan asserted `classificationResults.bucketId`'s foreign key had no `onDelete` clause, so deleting a bucket would throw a Postgres FK violation.
+
+**What was wrong / the risk:**
+Reading `db/schema.ts` directly showed `bucketId` already has `onDelete: 'cascade'` — deleting a bucket would silently cascade-delete its emails' classification rows, not throw. The initial claim was an assumption made without reading the file, and would have been a wrong "reason it's safe not to build delete" if repeated uncorrected.
+
+**How it was caught:**
+Manual review — reading the actual schema file before finalizing the plan, rather than trusting the first-pass reasoning about FK behavior.
+
+**The fix:**
+Corrected the plan's stated rationale to reflect the real cascade behavior before any code was written; bucket deletion remains out of scope for Phase 4 (not required by the assignment), but the documented reasoning is now accurate.
+
+**Why it matters:**
+A plan's claims about existing code are only as good as whether they were actually verified against the file — this is the same "read it, don't guess it" discipline the production-quality bar expects from the code itself.
+
+### [Phase 4] — `exactOptionalPropertyTypes` rejected `exit={undefined}` when adding reduced-motion support — 2026-07-15
+**What Claude Code generated first:**
+Adding a `useReducedMotion()` gate to `EmailCard.tsx`'s Framer Motion props, the exit animation was written as `exit={reduceMotion ? undefined : { opacity: 0 }}`.
+
+**What was wrong / the risk:**
+The repo's `tsconfig` has `exactOptionalPropertyTypes: true`, under which explicitly passing `undefined` to an optional prop is a different (rejected) type than omitting the prop entirely — `tsc` failed with `Type 'undefined' is not assignable to type 'TargetAndTransition | VariantLabels'`.
+
+**How it was caught:**
+Typecheck (`npm run typecheck -w apps/web`).
+
+**The fix:**
+Changed the reduced-motion branch to a no-op transition (`{ opacity: 1 }`) instead of `undefined`, so the prop's type is always a valid `TargetAndTransition`.
+
+**Why it matters:**
+Small, mechanical, and exactly what strict compiler flags are for — caught before it ever reached a browser, consistent with this repo's pattern of `noUncheckedIndexedAccess`/`exactOptionalPropertyTypes` paying for themselves (see the Phase 2 nullable-confidence entry above).

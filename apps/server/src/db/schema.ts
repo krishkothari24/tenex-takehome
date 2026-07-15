@@ -36,6 +36,11 @@ export const emails = pgTable(
     snippet: text('snippet'),
     internalDate: timestamp('internal_date', { withTimezone: true }),
     rawHeaders: jsonb('raw_headers'),
+    // Nullable — populated from data already fetched during sync (no extra Gmail API calls), but
+    // null for any row synced before this column existed until the next sync re-populates it.
+    // Powers the dashboard's "unanswered VIP" attention heuristic (build guide §6).
+    messageCount: integer('message_count'),
+    hasReplyFromUser: boolean('has_reply_from_user'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -75,6 +80,9 @@ export const classificationResults = pgTable(
     }),
     confidence: real('confidence'),
     justification: text('justification'),
+    // Model-estimated reading/response minutes for this specific email (build guide §6's
+    // time-cost dashboard tile) — null exactly when status is 'unclassified'.
+    estimatedReadMinutes: real('estimated_read_minutes'),
     status: text('status').notNull().default('classified'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
