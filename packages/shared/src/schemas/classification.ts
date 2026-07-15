@@ -11,6 +11,11 @@ export const bucketSchema = z.object({
 });
 export type Bucket = z.infer<typeof bucketSchema>;
 
+export const bucketsResponseSchema = z.object({
+  buckets: z.array(bucketSchema),
+});
+export type BucketsResponse = z.infer<typeof bucketsResponseSchema>;
+
 /**
  * `classified` — the pipeline placed the email in a bucket.
  * `unclassified` — the email's batch failed even after a corrective retry; the row is

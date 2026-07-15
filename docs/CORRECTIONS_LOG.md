@@ -97,3 +97,19 @@ Null-guarded both call sites (`confidence != null ? \` conf=${…}\` : ''`).
 
 **Why it matters:**
 A null-unsafe formatter on the unclassified path would crash the eval/report on the very case the pipeline is designed to surface safely — the strict-mode + `noUncheckedIndexedAccess` config paid for itself here.
+
+### [Phase 3] — Mount effect double-fired the classify SSE call — 2026-07-15
+**What Claude Code generated first:**
+`App.tsx`'s sign-in effect (`useEffect(() => { if (!user) return; void loadBoard(); }, [user])`) called `loadBoard()` directly, which — when a synced-but-unclassified inbox is detected — kicks off `POST /api/classify`, a real, billable Anthropic API run.
+
+**What was wrong / the risk:**
+React StrictMode (enabled in `main.tsx`) intentionally double-invokes mount effects in dev to surface non-idempotent side effects. With no de-dupe guard, the effect fired `loadBoard()` twice on first mount, and the client-side `useClassifyStream` hook's `abortRef.current?.abort()` only cancels the *first* fetch client-side after the *second* has already been issued — both `POST /api/classify` requests actually reach the server. In dry-run this is free; with a real API key it would mean two concurrent `classifyEmails()` runs against the same inbox, i.e. ~2x real spend for one page load (idempotent persistence means the data ends up correct, but the tokens are still paid for twice).
+
+**How it was caught:**
+Manual review — verifying the Phase 3 SSE flow end-to-end with Playwright against a throwaway test user (`CLASSIFIER_DRY_RUN=true`, $0 cost) and inspecting the network log showed `GET /api/emails`, `GET /api/buckets`, and `POST /api/classify` each fired exactly twice on first load. Not caught by typecheck or lint — this is a runtime effect-timing bug, invisible in the diff.
+
+**The fix:**
+Added a `useRef<string | null>` (`bootstrappedForUserId`) keyed on the signed-in user's id; the mount effect no-ops if it has already bootstrapped for that user, so StrictMode's remount is a cheap no-op instead of a second real network flow. Re-verified with the same Playwright + dry-run setup: each route now fires exactly once.
+
+**Why it matters:**
+This is the same class of issue as the Phase 2 concurrency-cap correction (§8.6's canonical example) — the AI-generated code was structurally reasonable but hadn't been exercised against a real render lifecycle where "the effect can legitimately run twice" matters, and here that gap would have doubled real classification spend, not just wasted a network call.

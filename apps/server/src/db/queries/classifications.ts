@@ -76,3 +76,30 @@ export async function listClassificationsForUser(userId: string) {
     .leftJoin(secondaryBucket, eq(classificationResults.secondaryBucketId, secondaryBucket.id))
     .where(eq(emails.userId, userId));
 }
+
+/**
+ * All of a user's synced emails, left-joined with their classification if one exists yet.
+ * Unlike `listClassificationsForUser` (inner join, only already-classified rows), this includes
+ * emails with no classification_results row at all — `GET /api/emails`'s "render from Postgres"
+ * query, and how the frontend detects "some emails still need a classify run" on load.
+ */
+export async function listEmailsWithClassification(userId: string) {
+  return db
+    .select({
+      emailId: emails.id,
+      subject: emails.subject,
+      fromAddress: emails.fromAddress,
+      snippet: emails.snippet,
+      bucket: primaryBucket.name,
+      bucketColor: primaryBucket.color,
+      secondaryBucket: secondaryBucket.name,
+      confidence: classificationResults.confidence,
+      justification: classificationResults.justification,
+      status: classificationResults.status,
+    })
+    .from(emails)
+    .leftJoin(classificationResults, eq(classificationResults.emailId, emails.id))
+    .leftJoin(primaryBucket, eq(classificationResults.bucketId, primaryBucket.id))
+    .leftJoin(secondaryBucket, eq(classificationResults.secondaryBucketId, secondaryBucket.id))
+    .where(eq(emails.userId, userId));
+}

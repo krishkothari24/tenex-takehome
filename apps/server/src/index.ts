@@ -9,6 +9,9 @@ import authGuardPlugin from './plugins/auth-guard.js';
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
 import inboxRoutes from './routes/inbox.js';
+import bucketsRoutes from './routes/buckets.js';
+import emailsRoutes from './routes/emails.js';
+import classifyRoutes from './routes/classify.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -21,6 +24,9 @@ async function main() {
   await fastify.register(healthRoutes);
   await fastify.register(authRoutes);
   await fastify.register(inboxRoutes);
+  await fastify.register(bucketsRoutes);
+  await fastify.register(emailsRoutes);
+  await fastify.register(classifyRoutes);
 
   if (env.NODE_ENV === 'production') {
     await fastify.register(fastifyStatic, {
