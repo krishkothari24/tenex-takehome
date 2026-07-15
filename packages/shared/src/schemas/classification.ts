@@ -43,5 +43,18 @@ export const emailClassificationSchema = z.object({
    * (see build guide §6's dashboard time-cost tile). Null exactly when `status` is 'unclassified'.
    */
   estimatedReadMinutes: z.number().min(0).max(30).nullable(),
+  /**
+   * Whether the email mentions a date, deadline, or explicit time-sensitive ask — extracted from
+   * the same batched call, not a separate pass (build guide §6 stretch: deadline/urgency
+   * detection). `false`/`null` exactly when `status` is 'unclassified'.
+   */
+  hasDeadline: z.boolean().nullable(),
+  /**
+   * A short phrase quoted/paraphrased from the email's own content (e.g. "reply by Friday") —
+   * deliberately not a resolved calendar date, since the model can't reliably anchor a relative
+   * date ("Friday") without knowing today's date; asserting one would be an ungrounded guess.
+   * Null whenever `hasDeadline` is false/null.
+   */
+  deadlineText: z.string().max(160).nullable(),
 });
 export type EmailClassification = z.infer<typeof emailClassificationSchema>;

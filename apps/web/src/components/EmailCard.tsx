@@ -50,38 +50,68 @@ export function EmailCard({ email, bucketColor }: EmailCardProps) {
       <p className="mt-0.5 truncate text-xs text-slate-400">{email.fromAddress || 'Unknown sender'}</p>
       <div className="mt-1.5 flex items-start justify-between gap-2">
         {email.snippet && <p className="line-clamp-2 text-xs text-slate-500">{email.snippet}</p>}
-        {email.justification && (
-          <Popover.Root>
-            <Popover.Trigger asChild>
-              <button
-                type="button"
-                aria-label="Why this bucket?"
-                className="-m-1 shrink-0 rounded p-1.5 text-slate-500 hover:text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
-              >
-                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
-                  <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" />
-                  <path d="M8 7.2v3.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                  <circle cx="8" cy="5.1" r="0.9" fill="currentColor" />
-                </svg>
-              </button>
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content
-                side="top"
-                align="end"
-                sideOffset={6}
-                collisionPadding={12}
-                className="z-50 max-w-64 rounded-md border border-slate-700 bg-slate-800 p-3 text-xs text-slate-200 shadow-lg"
-              >
-                <p>{email.justification}</p>
-                {isAmbiguous && email.secondaryBucket && (
-                  <p className="mt-1.5 text-violet-300">Also close to: {email.secondaryBucket}</p>
-                )}
-                <Popover.Arrow className="fill-slate-700" />
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
-        )}
+        <div className="flex shrink-0 items-center">
+          {email.hasDeadline && (
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label="Has a deadline"
+                  className="-m-1 shrink-0 rounded p-1.5 text-amber-400 hover:text-amber-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" />
+                    <path d="M8 4.5v3.8l2.4 1.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  side="top"
+                  align="end"
+                  sideOffset={6}
+                  collisionPadding={12}
+                  className="z-50 max-w-64 rounded-md border border-slate-700 bg-slate-800 p-3 text-xs text-slate-200 shadow-lg"
+                >
+                  <p>{email.deadlineText}</p>
+                  <Popover.Arrow className="fill-slate-700" />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          )}
+          {email.justification && (
+            <Popover.Root>
+              <Popover.Trigger asChild>
+                <button
+                  type="button"
+                  aria-label="Why this bucket?"
+                  className="-m-1 shrink-0 rounded p-1.5 text-slate-500 hover:text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+                >
+                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+                    <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" />
+                    <path d="M8 7.2v3.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                    <circle cx="8" cy="5.1" r="0.9" fill="currentColor" />
+                  </svg>
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  side="top"
+                  align="end"
+                  sideOffset={6}
+                  collisionPadding={12}
+                  className="z-50 max-w-64 rounded-md border border-slate-700 bg-slate-800 p-3 text-xs text-slate-200 shadow-lg"
+                >
+                  <p>{email.justification}</p>
+                  {isAmbiguous && email.secondaryBucket && (
+                    <p className="mt-1.5 text-violet-300">Also close to: {email.secondaryBucket}</p>
+                  )}
+                  <Popover.Arrow className="fill-slate-700" />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          )}
+        </div>
       </div>
       {isUnclassified && <p className="mt-1.5 text-xs font-medium text-amber-400">Couldn&rsquo;t be classified</p>}
     </motion.article>

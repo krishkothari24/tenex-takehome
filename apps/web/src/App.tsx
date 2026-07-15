@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Bucket, DashboardAnalytics, EmailWithClassification } from '@inbox-concierge/shared';
+import type { Bucket, DashboardAnalytics, Digest, EmailWithClassification } from '@inbox-concierge/shared';
 import { useSession } from './hooks/useSession';
 import { api } from './api/client';
 import { useClassifyStream } from './hooks/useClassifyStream';
+import { useDigestStream } from './hooks/useDigestStream';
 import { BucketBoard } from './components/BucketBoard';
 import { Dashboard } from './components/Dashboard';
 import { CreateBucketForm } from './components/CreateBucketForm';
@@ -20,7 +21,9 @@ export default function App() {
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [digest, setDigest] = useState<Digest | null>(null);
   const classify = useClassifyStream();
+  const digestStream = useDigestStream();
 
   // Loads persisted emails from Postgres. Zero synced emails → the sign-in-style "Sync my
   // inbox" gate. Otherwise render the board immediately (the instant-reopen path, build guide
@@ -63,13 +66,33 @@ export default function App() {
   // not by typecheck/lint. Keyed on user id so a real sign-out/sign-in cycle still bootstraps.
   const bootstrappedForUserId = useRef<string | null>(null);
 
+  // Loads the last persisted digest, if any — a cheap, non-billable GET, so it's safe alongside
+  // loadBoard/loadAnalytics in the same bootstrap effect. Never triggers generation itself.
+  const loadDigest = useCallback(async () => {
+    try {
+      const { digest: persisted } = await api.getDigest();
+      setDigest(persisted);
+    } catch {
+      // Non-critical — the digest panel's own "Generate" button remains available either way.
+    }
+  }, []);
+
   useEffect(() => {
     if (!user || bootstrappedForUserId.current === user.id) return;
     bootstrappedForUserId.current = user.id;
     void loadBoard();
     void loadAnalytics();
+    void loadDigest();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per sign-in, not on every classify identity change
   }, [user]);
+
+  // Mirror the digest stream's terminal result into local state once generation completes — same
+  // "subscribe for updates from an external system" pattern as the classify-merge effect below.
+  useEffect(() => {
+    if (digestStream.status !== 'done' || !digestStream.digest) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDigest(digestStream.digest);
+  }, [digestStream.status, digestStream.digest]);
 
   // Subscribe to the classify stream's external state and mirror it onto the local email list
   // as batches arrive — this is the "subscribe for updates from an external system" case the
@@ -238,7 +261,14 @@ export default function App() {
               </button>
             </div>
           ) : analytics ? (
-            <Dashboard analytics={analytics} />
+            <Dashboard
+              analytics={analytics}
+              digest={digest}
+              digestStatus={digestStream.status}
+              digestInputEmailCount={digestStream.inputEmailCount}
+              digestErrorMessage={digestStream.errorMessage}
+              onGenerateDigest={() => void digestStream.start()}
+            />
           ) : (
             <p className="text-sm text-slate-400">Crunching your inbox numbers…</p>
           )

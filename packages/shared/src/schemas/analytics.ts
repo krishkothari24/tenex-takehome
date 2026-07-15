@@ -43,5 +43,20 @@ export const dashboardAnalyticsSchema = z.object({
       count: z.number().int().nonnegative(),
     }),
   ),
+  /**
+   * Relationship-strength ranking (build guide §6 stretch), deterministic — not LLM-derived.
+   * Scoped to the current sync snapshot only (see services/analytics/vip.ts); requires at least
+   * 2 threads from a sender before calling them "VIP" — one email isn't a relationship pattern.
+   */
+  vipSenders: z.array(
+    z.object({
+      senderLabel: z.string(),
+      emailAddress: z.string().nullable(),
+      threadCount: z.number().int().nonnegative(),
+      importantCount: z.number().int().nonnegative(),
+      replyRate: z.number().min(0).max(1),
+      score: z.number().nonnegative(),
+    }),
+  ),
 });
 export type DashboardAnalytics = z.infer<typeof dashboardAnalyticsSchema>;

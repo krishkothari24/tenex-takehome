@@ -38,7 +38,16 @@ export function classificationBatchSchema(bucketNames: string[]) {
     // Value guard: bounds the model's per-email time estimate so one hallucinated outlier can't
     // poison the dashboard's aggregate time-cost sum (same instinct as the truncate*() guards above).
     estimatedReadMinutes: z.number().min(0).max(30),
-  });
+    hasDeadline: z.boolean(),
+    // Length guard mirrors justification's — a short grounded phrase, not a paragraph.
+    deadlineText: z.string().trim().min(1).max(160).nullable(),
+  })
+    // A model that says hasDeadline but forgets to null-out deadlineText (or vice versa) is a
+    // correctness bug worth rejecting (→ retried once) rather than silently persisting an
+    // inconsistent pair — same "reject and retry" instinct as the rest of this schema.
+    .refine((v) => v.hasDeadline === (v.deadlineText !== null), {
+      message: 'deadlineText must be non-null exactly when hasDeadline is true',
+    });
   return z.object({ classifications: z.array(item).min(1) });
 }
 

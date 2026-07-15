@@ -12,6 +12,8 @@ export interface UpsertClassificationInput {
   justification: string | null;
   status: ClassificationStatus;
   estimatedReadMinutes: number | null;
+  hasDeadline: boolean | null;
+  deadlineText: string | null;
 }
 
 /** Idempotent — keyed on emailId, so a full re-run replaces rather than duplicates. */
@@ -26,6 +28,8 @@ export async function upsertClassification(input: UpsertClassificationInput): Pr
       justification: input.justification,
       status: input.status,
       estimatedReadMinutes: input.estimatedReadMinutes,
+      hasDeadline: input.hasDeadline,
+      deadlineText: input.deadlineText,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -37,6 +41,8 @@ export async function upsertClassification(input: UpsertClassificationInput): Pr
         justification: input.justification,
         status: input.status,
         estimatedReadMinutes: input.estimatedReadMinutes,
+        hasDeadline: input.hasDeadline,
+        deadlineText: input.deadlineText,
         updatedAt: new Date(),
       },
     });
@@ -53,6 +59,8 @@ export async function markEmailsUnclassified(emailIds: string[]): Promise<void> 
       justification: null,
       status: 'unclassified',
       estimatedReadMinutes: null,
+      hasDeadline: null,
+      deadlineText: null,
     });
   }
 }
@@ -105,6 +113,8 @@ export async function listEmailsWithClassification(userId: string) {
       justification: classificationResults.justification,
       status: classificationResults.status,
       estimatedReadMinutes: classificationResults.estimatedReadMinutes,
+      hasDeadline: classificationResults.hasDeadline,
+      deadlineText: classificationResults.deadlineText,
     })
     .from(emails)
     .leftJoin(classificationResults, eq(classificationResults.emailId, emails.id))

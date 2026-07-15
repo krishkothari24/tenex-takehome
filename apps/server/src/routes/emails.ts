@@ -21,6 +21,8 @@ export default async function emailsRoutes(fastify: FastifyInstance) {
         justification: row.justification,
         status: row.status as ClassificationStatus | null,
         isAmbiguous: row.status === null ? null : isAmbiguousFromPersisted(row.confidence, row.secondaryBucket !== null),
+        hasDeadline: row.hasDeadline,
+        deadlineText: row.deadlineText,
       })),
     };
     reply.send(response);

@@ -14,6 +14,7 @@ import emailsRoutes from './routes/emails.js';
 import classifyRoutes from './routes/classify.js';
 import reclassifyRoutes from './routes/reclassify.js';
 import analyticsRoutes from './routes/analytics.js';
+import digestRoutes from './routes/digest.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,6 +32,7 @@ async function main() {
   await fastify.register(classifyRoutes);
   await fastify.register(reclassifyRoutes);
   await fastify.register(analyticsRoutes);
+  await fastify.register(digestRoutes);
 
   if (env.NODE_ENV === 'production') {
     await fastify.register(fastifyStatic, {

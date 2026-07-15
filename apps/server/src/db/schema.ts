@@ -83,9 +83,29 @@ export const classificationResults = pgTable(
     // Model-estimated reading/response minutes for this specific email (build guide §6's
     // time-cost dashboard tile) — null exactly when status is 'unclassified'.
     estimatedReadMinutes: real('estimated_read_minutes'),
+    // Deadline/urgency signal (build guide §6 stretch), extracted in the same batched call —
+    // hasDeadline is null (not false) and deadlineText is null exactly when status is
+    // 'unclassified', mirroring estimatedReadMinutes' nullability convention.
+    hasDeadline: boolean('has_deadline'),
+    deadlineText: text('deadline_text'),
     status: text('status').notNull().default('classified'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [unique('classification_results_email_unique').on(table.emailId)],
 );
+
+// One row per generated digest (append-only, not upserted) — "regenerate" creates a new row so
+// the cost/history of past runs is never lost; the API always reads the most recent by createdAt.
+export const digests = pgTable('digests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  headline: text('headline').notNull(),
+  actionItems: jsonb('action_items').notNull(),
+  fyiCount: integer('fyi_count').notNull(),
+  inputEmailCount: integer('input_email_count').notNull(),
+  costUsd: real('cost_usd').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

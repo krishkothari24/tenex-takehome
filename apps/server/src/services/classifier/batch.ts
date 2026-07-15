@@ -32,6 +32,8 @@ function toClassification(item: ParsedItem, emailId: string): EmailClassificatio
     isAmbiguous,
     status: 'classified',
     estimatedReadMinutes: item.estimatedReadMinutes,
+    hasDeadline: item.hasDeadline,
+    deadlineText: item.deadlineText,
   };
 }
 

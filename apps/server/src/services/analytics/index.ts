@@ -1,8 +1,10 @@
 import type { DashboardAnalytics } from '@inbox-concierge/shared';
 import { listBuckets } from '../../db/queries/buckets.js';
 import { listEmailsWithClassification } from '../../db/queries/classifications.js';
+import { findUserById } from '../../db/queries/users.js';
 import { extractDisplayName, extractEmailAddress } from '../email-address.js';
 import { computeTimeCost } from './time-cost.js';
+import { computeVipSenders } from './vip.js';
 
 const UNSORTED_LABEL = 'Unsorted';
 const TOP_SENDER_LIMIT = 10;
@@ -17,7 +19,11 @@ const TIME_COST_ASSUMPTION_NOTE =
  * path; the only realistic failure is a DB outage, which the route surfaces as a plain 500.
  */
 export async function computeDashboardAnalytics(userId: string): Promise<DashboardAnalytics> {
-  const [rows, buckets] = await Promise.all([listEmailsWithClassification(userId), listBuckets(userId)]);
+  const [rows, buckets, user] = await Promise.all([
+    listEmailsWithClassification(userId),
+    listBuckets(userId),
+    findUserById(userId),
+  ]);
   const colorByBucketName = new Map(buckets.map((b) => [b.name, b.color]));
 
   const timeCost = computeTimeCost(
@@ -67,6 +73,11 @@ export async function computeDashboardAnalytics(userId: string): Promise<Dashboa
     .slice(0, TOP_SENDER_LIMIT)
     .map((s) => ({ senderLabel: s.label, emailAddress: s.address, count: s.count }));
 
+  const vipSenders = computeVipSenders(
+    rows.map((r) => ({ fromAddress: r.fromAddress, bucket: r.bucket, hasReplyFromUser: r.hasReplyFromUser })),
+    user?.email ?? null,
+  );
+
   return {
     totalEmails: rows.length,
     timeCost: {
@@ -79,5 +90,6 @@ export async function computeDashboardAnalytics(userId: string): Promise<Dashboa
     attention,
     volumeByBucket,
     topSenders,
+    vipSenders,
   };
 }

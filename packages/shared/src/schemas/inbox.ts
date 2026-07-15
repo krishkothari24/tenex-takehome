@@ -35,6 +35,8 @@ export const emailWithClassificationSchema = z.object({
   justification: z.string().nullable(),
   status: z.enum(['classified', 'unclassified']).nullable(),
   isAmbiguous: z.boolean().nullable(),
+  hasDeadline: z.boolean().nullable(),
+  deadlineText: z.string().nullable(),
 });
 export type EmailWithClassification = z.infer<typeof emailWithClassificationSchema>;
 

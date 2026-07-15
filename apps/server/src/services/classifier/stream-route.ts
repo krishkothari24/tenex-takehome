@@ -90,6 +90,8 @@ export async function runClassifyStreamRoute({
               justification: c.justification,
               status: bucketId ? 'classified' : 'unclassified',
               estimatedReadMinutes: c.estimatedReadMinutes,
+              hasDeadline: c.hasDeadline,
+              deadlineText: c.deadlineText,
             });
           }
         } else {

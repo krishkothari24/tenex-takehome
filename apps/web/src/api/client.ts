@@ -3,6 +3,8 @@ import type {
   ClassifyStreamEvent,
   CreateBucketResponse,
   DashboardAnalytics,
+  DigestResponse,
+  DigestStreamEvent,
   EmailsResponse,
   InboxSyncResponse,
   SessionUser,
@@ -41,26 +43,29 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name }),
     }),
-  classifyStream: (signal: AbortSignal | null = null) => streamPost('/api/classify', signal),
-  reclassifyStream: (signal: AbortSignal | null = null) => streamPost('/api/reclassify', signal),
+  classifyStream: (signal: AbortSignal | null = null) => streamPost<ClassifyStreamEvent>('/api/classify', signal),
+  reclassifyStream: (signal: AbortSignal | null = null) => streamPost<ClassifyStreamEvent>('/api/reclassify', signal),
+  getDigest: () => request<DigestResponse>('/api/digest'),
+  digestStream: (signal: AbortSignal | null = null) => streamPost<DigestStreamEvent>('/api/digest', signal),
 };
 
 /**
- * Both `/api/classify` and `/api/reclassify` are mutating, side-effecting calls (they persist
- * classification rows), so they're consumed via `fetch()` + a manual `ReadableStream` reader
- * rather than `EventSource` — `EventSource` only supports GET and can't express that. Shared here
- * so the SSE frame-parsing logic isn't duplicated between the two streams.
+ * `/api/classify`, `/api/reclassify`, and `/api/digest` are all mutating, side-effecting calls
+ * (they persist rows and, for digest, spend real API budget), so they're consumed via `fetch()` +
+ * a manual `ReadableStream` reader rather than `EventSource` — `EventSource` only supports GET and
+ * can't express that. Generic over the event union so the frame-parsing logic isn't duplicated
+ * across streams that share this shape but not their event types.
  */
-async function* streamPost(path: string, signal: AbortSignal | null): AsyncGenerator<ClassifyStreamEvent> {
+async function* streamPost<T>(path: string, signal: AbortSignal | null): AsyncGenerator<T> {
   const res = await fetch(path, { method: 'POST', credentials: 'include', signal });
   if (res.status === 401) throw new UnauthenticatedError();
   if (!res.ok || !res.body) {
     throw new Error(`Request to ${path} failed with status ${res.status}`);
   }
-  yield* parseSSEFrames(res);
+  yield* parseSSEFrames<T>(res);
 }
 
-async function* parseSSEFrames(res: Response): AsyncGenerator<ClassifyStreamEvent> {
+async function* parseSSEFrames<T>(res: Response): AsyncGenerator<T> {
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -77,7 +82,7 @@ async function* parseSSEFrames(res: Response): AsyncGenerator<ClassifyStreamEven
         buffer = buffer.slice(frameEnd + 2);
         const dataLine = frame.split('\n').find((line) => line.startsWith('data: '));
         if (dataLine) {
-          yield JSON.parse(dataLine.slice('data: '.length)) as ClassifyStreamEvent;
+          yield JSON.parse(dataLine.slice('data: '.length)) as T;
         }
         frameEnd = buffer.indexOf('\n\n');
       }

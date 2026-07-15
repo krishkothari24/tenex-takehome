@@ -21,6 +21,7 @@ export function buildSystemPrompt(buckets: BucketDef[]): string {
     '- Justification: ONE short sentence grounded in something concrete (a phrase, the sender type, a deadline) — not a generic restatement of the bucket name.',
     '- If a second bucket is a genuinely close call, set secondaryBucket to it; otherwise null. Never make secondaryBucket the same as the primary bucket.',
     '- Also estimate `estimatedReadMinutes`: how many minutes a busy professional would realistically spend reading and responding to THIS SPECIFIC email, given its content — not a generic bucket default. Use fractional values freely (e.g. ~0.1 for a glance-worthy promo, 0.5-1 for a quick skim, 2-5 for something requiring real reading or a reply).',
+    '- Also set `hasDeadline`: true only if the email mentions a specific date, deadline, or explicit time-sensitive ask (e.g. "sign by Friday", "renewal due March 3", "please respond today"). If true, set `deadlineText` to a short phrase quoted or closely paraphrased from the email itself — never invent or resolve a date the email does not state. If false, `deadlineText` must be null.',
     '- Record all results in a single call to the provided tool: one entry per email, referencing the email by its `index` number. Do not skip or duplicate any index.',
   ].join('\n');
 }
@@ -86,6 +87,15 @@ export function buildClassifyTool(bucketNames: string[]): Anthropic.Tool {
                 description:
                   "Minutes a busy professional would spend reading and responding to this specific email — grounded in its actual content, not a bucket default.",
               },
+              hasDeadline: {
+                type: 'boolean',
+                description: 'True only if the email states a specific date, deadline, or explicit time-sensitive ask.',
+              },
+              deadlineText: {
+                description:
+                  'A short phrase quoted/paraphrased from the email when hasDeadline is true; null when hasDeadline is false. Never a resolved calendar date the email did not state.',
+                anyOf: [{ type: 'string' }, { type: 'null' }],
+              },
             },
             required: [
               'index',
@@ -94,6 +104,8 @@ export function buildClassifyTool(bucketNames: string[]): Anthropic.Tool {
               'justification',
               'secondaryBucket',
               'estimatedReadMinutes',
+              'hasDeadline',
+              'deadlineText',
             ],
           },
         },

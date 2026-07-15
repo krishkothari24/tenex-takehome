@@ -177,3 +177,19 @@ Ran `npm run build -w packages/shared` to regenerate `dist/` before re-running t
 
 **Why it matters:**
 A monorepo workspace boundary (`src` vs. built `dist`) can produce a typecheck failure that looks like an application bug but is actually a build-order gotcha — worth remembering (and worth eventually scripting as a `pretypecheck` step) any time a shared-package schema changes.
+
+### [Phase 6] — Dry-run verification wiped 200 real classification rows — 2026-07-15
+**What Claude Code generated first:**
+To verify the new `hasDeadline`/`deadlineText` fields flowed through the pipeline at $0 before spending real money, ran `CLASSIFIER_DRY_RUN=true npm run classify:dev -w apps/server -- --confirm` directly against the dev database.
+
+**What was wrong / the risk:**
+The dry-run kill switch's documented behavior (`config.ts`'s `isDryRun()`, `pipeline.ts:120-142`) is to mark *every targeted email* `unclassified` in the DB — that's how it "exercises the plumbing" at zero API cost. The database already held 200 real, previously-classified emails (real bucket assignments, confidences, justifications) for the signed-in user. The command was run without first checking whether the target database held real, non-disposable data — it overwrote all 200 rows to `status: 'unclassified'`, discarding every existing classification.
+
+**How it was caught:**
+Manual review — querying `classification_results` immediately after the dry run and seeing `{status: 'unclassified', count: 200}` where a healthy distribution across buckets was expected.
+
+**The fix:**
+Attempted an immediate real (`--confirm`, no dry-run) re-classify to regenerate the lost data, which surfaced a second problem: `ANTHROPIC_API_KEY` in `.env` is empty (0 characters) in this sandbox, so the classifications cannot currently be regenerated at all. The 200 `emails` rows (subject/snippet/sender/etc.) are untouched and intact — only the derived `classification_results` were lost, and they are re-derivable once a real key is available. Flagged directly to the human rather than continuing to build on top of it; did not attempt any further workaround (e.g. fabricating placeholder classifications) that would mask the data loss.
+
+**Why it matters:**
+`git status` before a destructive git command is the established habit for code; this is the same discipline applied to a database — check what a "$0, safe, exercises the plumbing" command actually does to *existing* data before running it against anything that isn't disposable seed data. A dry-run flag lowering *API* cost to zero does not mean the command is non-destructive to the database.
