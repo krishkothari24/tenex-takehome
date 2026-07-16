@@ -42,6 +42,20 @@ export class CostCeilingExceededError extends Error {
   }
 }
 
+/** Anthropic account has run out of prepaid API credits (no auto-reload configured). Distinct
+ *  from a per-batch validation failure: every subsequent call fails identically until credits are
+ *  added, so callers fail the whole run loud and fast instead of burning a corrective retry or
+ *  grinding through every remaining batch for the same wall. No charge occurs when this fires. */
+export class InsufficientCreditsError extends Error {
+  constructor() {
+    super(
+      'Anthropic API credit balance is depleted — classification is paused. No charges are made ' +
+        'automatically; add credits in the Anthropic Console billing settings, then retry.',
+    );
+    this.name = 'InsufficientCreditsError';
+  }
+}
+
 /** A batch that failed validation even after its one corrective retry. Carries the tokens it
  *  did spend so the run can still account for them, and the ids to mark `unclassified`. */
 export class BatchClassificationError extends Error {

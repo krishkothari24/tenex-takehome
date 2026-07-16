@@ -209,3 +209,19 @@ Added `hasDeadline: update.hasDeadline` and `deadlineText: update.deadlineText` 
 
 **Why it matters:**
 The same "verify by tracing an actual data path end to end" discipline that caught the Phase 3 StrictMode double-classify bug — a field added to a shared type doesn't automatically reach every consumer of that type, and nothing short of tracing a concrete new code path (here, the sender-rule feature) surfaced that this one had been silently dropped since the field was introduced.
+
+### [Phase 7] — `client.messages.create()` had no error handling for a depleted Anthropic credit balance — 2026-07-15
+**What Claude Code generated first:**
+`classifyBatch` (classifier/batch.ts) and `generateDigest` (digest/generate.ts) each called `client.messages.create(...)` with no surrounding try/catch — only the downstream Zod validation was wrapped. A billing/auth-level SDK error (e.g. a depleted credit balance) would throw straight out of the function unhandled instead of going through the existing corrective-retry or partial-failure-isolation paths.
+
+**What was wrong / the risk:**
+For classification specifically, this meant every concurrent batch would independently hit the same wall and pay for the same doomed API round trip, then report N near-identical "batch failed" messages with the raw SDK error text instead of one clear, actionable top-level error — the exact opposite of CLAUDE.md's "failed batch degrades gracefully" intent, since a depleted balance is an account-level condition, not a per-batch data problem.
+
+**How it was caught:**
+Manual review, prompted by a user question about billing behavior (does it keep charging, what error comes back) — tracing the actual call sites showed the `messages.create()` call itself sat outside every try/catch in both files.
+
+**The fix:**
+Added `isInsufficientCreditsError()` (classifier/anthropic.ts, checks the SDK's `.type === 'billing_error'` with a message-text fallback) and a dedicated `InsufficientCreditsError`. Both call sites now catch the API call specifically, skip the pointless corrective retry, and throw immediately. `classifyEmails` short-circuits any batch not yet started once one batch hits this error and propagates it as a whole-run failure (`INSUFFICIENT_CREDITS` SSE code) rather than N duplicate per-batch failures; the digest route does the same.
+
+**Why it matters:**
+Matches CLAUDE.md's non-negotiable on graceful batch degradation, and turns an opaque "classification failed" wall of red text into one clear, actionable message telling the user exactly what happened and what to do about it — without wasting API round trips on calls already known to fail.

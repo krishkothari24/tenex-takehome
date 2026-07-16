@@ -8,6 +8,7 @@ import {
   classifyEmails,
   CostCeilingExceededError,
   EmptyBucketSetError,
+  InsufficientCreditsError,
   MAX_EMAILS_PER_RUN,
   TooManyEmailsError,
 } from './index.js';
@@ -200,6 +201,7 @@ function describeClassifyError(err: unknown): { code: string; message: string } 
   if (err instanceof EmptyBucketSetError) return { code: 'EMPTY_BUCKET_SET', message: err.message };
   if (err instanceof TooManyEmailsError) return { code: 'TOO_MANY_EMAILS', message: err.message };
   if (err instanceof CostCeilingExceededError) return { code: 'COST_CEILING_EXCEEDED', message: err.message };
+  if (err instanceof InsufficientCreditsError) return { code: 'INSUFFICIENT_CREDITS', message: err.message };
   return {
     code: 'CLASSIFY_FAILED',
     message: err instanceof Error ? err.message : 'Classification failed unexpectedly.',

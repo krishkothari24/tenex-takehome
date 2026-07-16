@@ -1,9 +1,9 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { EmailClassification } from '@inbox-concierge/shared';
-import { getAnthropicClient } from './anthropic.js';
+import { getAnthropicClient, isInsufficientCreditsError } from './anthropic.js';
 import { CLASSIFIER_MODEL, MAX_OUTPUT_TOKENS_PER_CALL } from './config.js';
 import { deriveAmbiguity } from './derive.js';
-import { BatchClassificationError } from './errors.js';
+import { BatchClassificationError, InsufficientCreditsError } from './errors.js';
 import { buildBatchUserMessage, buildClassifyTool, buildSystemPrompt, TOOL_NAME } from './prompt.js';
 import type { BucketDef, ClassifierEmail, TokenUsage } from './types.js';
 import { classificationBatchSchema, type ParsedItem } from './validation.js';
@@ -62,14 +62,22 @@ export async function classifyBatch(
         ? baseUserMessage
         : `${baseUserMessage}\n\nYour previous attempt was rejected (${lastError}). Return exactly one entry per index 1..${emails.length}, each bucket from the allowed list, confidence between 0 and 1.`;
 
-    const message = await client.messages.create({
-      model: CLASSIFIER_MODEL,
-      max_tokens: MAX_OUTPUT_TOKENS_PER_CALL,
-      system,
-      tools: [tool],
-      tool_choice: { type: 'tool', name: TOOL_NAME, disable_parallel_tool_use: true },
-      messages: [{ role: 'user', content: userMessage }],
-    });
+    let message: Anthropic.Message;
+    try {
+      message = await client.messages.create({
+        model: CLASSIFIER_MODEL,
+        max_tokens: MAX_OUTPUT_TOKENS_PER_CALL,
+        system,
+        tools: [tool],
+        tool_choice: { type: 'tool', name: TOOL_NAME, disable_parallel_tool_use: true },
+        messages: [{ role: 'user', content: userMessage }],
+      });
+    } catch (err) {
+      // Not retryable and won't resolve itself on the corrective-retry path below — every call
+      // fails the same way until credits are added, so fail this batch immediately.
+      if (isInsufficientCreditsError(err)) throw new InsufficientCreditsError();
+      throw err;
+    }
     usage.inputTokens += message.usage.input_tokens;
     usage.outputTokens += message.usage.output_tokens;
 

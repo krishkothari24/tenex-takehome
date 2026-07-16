@@ -1,7 +1,8 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import { getAnthropicClient } from '../classifier/anthropic.js';
+import { getAnthropicClient, isInsufficientCreditsError } from '../classifier/anthropic.js';
 import { estimateTokensFromChars } from '../classifier/cost.js';
 import { isDryRun } from '../classifier/config.js';
+import { InsufficientCreditsError } from '../classifier/errors.js';
 import { DIGEST_MODEL, MAX_DIGEST_OUTPUT_TOKENS, digestCostCeilingUsd } from './config.js';
 import { estimateDigestCostUsd } from './cost.js';
 import { DigestCostCeilingExceededError, DigestGenerationError } from './errors.js';
@@ -83,14 +84,21 @@ export async function generateDigest(candidates: DigestCandidateEmail[]): Promis
         ? baseUserMessage
         : `${baseUserMessage}\n\nYour previous attempt was rejected (${lastError}). Every emailId must be exactly one of the ids listed above.`;
 
-    const message = await client.messages.create({
-      model: DIGEST_MODEL,
-      max_tokens: MAX_DIGEST_OUTPUT_TOKENS,
-      system,
-      tools: [tool],
-      tool_choice: { type: 'tool', name: DIGEST_TOOL_NAME, disable_parallel_tool_use: true },
-      messages: [{ role: 'user', content: userMessage }],
-    });
+    let message: Anthropic.Message;
+    try {
+      message = await client.messages.create({
+        model: DIGEST_MODEL,
+        max_tokens: MAX_DIGEST_OUTPUT_TOKENS,
+        system,
+        tools: [tool],
+        tool_choice: { type: 'tool', name: DIGEST_TOOL_NAME, disable_parallel_tool_use: true },
+        messages: [{ role: 'user', content: userMessage }],
+      });
+    } catch (err) {
+      // Not retryable and won't resolve on the corrective-retry path below — fail immediately.
+      if (isInsufficientCreditsError(err)) throw new InsufficientCreditsError();
+      throw err;
+    }
 
     try {
       const parsed = schema.parse(extractToolInput(message));

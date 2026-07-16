@@ -5,6 +5,7 @@ import { findUserById } from '../../db/queries/users.js';
 import { insertDigest } from '../../db/queries/digests.js';
 import { extractEmailAddress } from '../email-address.js';
 import { computeVipSenders } from '../analytics/vip.js';
+import { InsufficientCreditsError } from '../classifier/errors.js';
 import { generateDigest, DigestCostCeilingExceededError, DigestGenerationError } from './index.js';
 import type { DigestCandidateEmail } from './index.js';
 
@@ -110,6 +111,7 @@ export async function runDigestStreamRoute({ request, reply, userId }: RunDigest
 
 function describeDigestError(err: unknown): { code: string; message: string } {
   if (err instanceof DigestCostCeilingExceededError) return { code: 'COST_CEILING_EXCEEDED', message: err.message };
+  if (err instanceof InsufficientCreditsError) return { code: 'INSUFFICIENT_CREDITS', message: err.message };
   if (err instanceof DigestGenerationError) return { code: 'DIGEST_FAILED', message: err.message };
   return {
     code: 'DIGEST_FAILED',

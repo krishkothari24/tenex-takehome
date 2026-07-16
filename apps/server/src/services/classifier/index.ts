@@ -16,6 +16,7 @@ export {
   TooManyEmailsError,
   CostCeilingExceededError,
   BatchClassificationError,
+  InsufficientCreditsError,
 } from './errors.js';
 export { classificationBatchSchema, truncateSubject, truncateSnippet } from './validation.js';
 export { deriveAmbiguity, isAmbiguousFromPersisted } from './derive.js';
