@@ -10,11 +10,13 @@ const EXAMPLE_QUERIES = [
 
 /**
  * The chat panel (docs/AGENTIC_CHAT.md §8) — a message list + input, rendering `status` events as
- * a visible inline tool-activity indicator (never a bare spinner) and `draft` turns as a distinct,
- * clearly-labeled card, never a plain chat bubble, so it reads unambiguously as "not sent." All
- * text here — model output and email-derived content alike — is plain JSX interpolation, never
- * `dangerouslySetInnerHTML`; this is the one place raw LLM output and email snippets both reach
- * the DOM through a single component.
+ * a visible inline tool-activity indicator (never a bare spinner), `draft` turns as a distinct,
+ * clearly-labeled card, never a plain chat bubble, so it reads unambiguously as "not sent," and
+ * `clarify` turns (phase 9c) as clickable option buttons — structured choices the model produced
+ * via ask_clarifying_question, never scraped out of prose. Only the latest turn's buttons stay
+ * clickable, since a newer turn means that choice is stale. All text here — model output and
+ * email-derived content alike — is plain JSX interpolation, never `dangerouslySetInnerHTML`; this
+ * is the one place raw LLM output and email snippets both reach the DOM through a single component.
  */
 export function AgentChatPanel({
   transcript,
@@ -75,13 +77,18 @@ export function AgentChatPanel({
           </div>
         )}
 
-        {transcript.map((turn) => (
+        {transcript.map((turn, index) => (
           <ChatTurnBubble
             key={turn.id}
             turn={turn}
             reduceMotion={reduceMotion === true}
             copied={copiedTurnId === turn.id}
             onCopy={() => turn.kind === 'draft' && void handleCopy(turn.id, turn.draftText)}
+            // Only the latest turn's clarify buttons stay clickable — once a newer turn exists,
+            // that choice is stale (the conversation has already moved on).
+            isLatest={index === transcript.length - 1}
+            disabled={isRunning}
+            onSelectOption={(option) => onSend(option)}
           />
         ))}
 
@@ -136,11 +143,17 @@ function ChatTurnBubble({
   reduceMotion,
   copied,
   onCopy,
+  isLatest,
+  disabled,
+  onSelectOption,
 }: {
   turn: ChatTurn;
   reduceMotion: boolean;
   copied: boolean;
   onCopy: () => void;
+  isLatest: boolean;
+  disabled: boolean;
+  onSelectOption: (option: string) => void;
 }) {
   const motionProps = {
     initial: reduceMotion ? false : ({ opacity: 0, y: 4 } as const),
@@ -170,6 +183,26 @@ function ChatTurnBubble({
         >
           {copied ? 'Copied!' : 'Copy draft'}
         </button>
+      </motion.div>
+    );
+  }
+
+  if (turn.kind === 'clarify') {
+    return (
+      <motion.div {...motionProps} className="max-w-[80%] rounded-lg bg-slate-800 px-4 py-2 text-sm text-slate-100">
+        <p className="whitespace-pre-wrap">{turn.question}</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {turn.options.map((option) => (
+            <button
+              key={option}
+              onClick={() => isLatest && !disabled && onSelectOption(option)}
+              disabled={!isLatest || disabled}
+              className="rounded-full border border-indigo-400/50 px-3 py-1 text-xs text-indigo-200 hover:bg-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+            >
+              {option}
+            </button>
+          ))}
+        </div>
       </motion.div>
     );
   }

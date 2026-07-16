@@ -59,9 +59,11 @@ export type AgentChatRequest = z.infer<typeof agentChatRequestSchema>;
  * human-readable tool activity ("Searching your inbox…") so the multi-step nature of the agent is
  * visible, not hidden behind a spinner; `draft` fires as soon as `draft_reply` produces a result,
  * ahead of the final `done` frame, so the UI can render the draft card as soon as it exists; exactly
- * one `done` or `error` frame closes the stream. `done.history` is the same wire schema as the
- * request — the server projects `Anthropic.MessageParam[]` down into it before sending, so the
- * client never needs its own copy of the SDK's types.
+ * one `done` or `error` frame closes the stream. `done.clarify` is set when the turn ended on an
+ * ask_clarifying_question call instead of a normal answer — structured question + options for
+ * clickable choices, rather than a plain-text question the UI would have to scrape. `done.history`
+ * is the same wire schema as the request — the server projects `Anthropic.MessageParam[]` down
+ * into it before sending, so the client never needs its own copy of the SDK's types.
  */
 export const agentStreamEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('started') }),
@@ -73,6 +75,12 @@ export const agentStreamEventSchema = z.discriminatedUnion('type', [
     history: z.array(agentMessageParamSchema),
     toolCalls: z.array(z.object({ name: z.string(), resultSummary: z.string() })),
     hitIterationCap: z.boolean(),
+    // Set when the turn ended on an ask_clarifying_question call (phase 9c) rather than a normal
+    // end_turn — structured question + options so the UI can render clickable choices instead of
+    // scraping them out of `reply`'s prose.
+    clarify: z
+      .object({ question: z.string(), options: z.array(z.string()).min(2).max(6) })
+      .optional(),
   }),
   z.object({ type: z.literal('error'), code: z.string(), message: z.string() }),
 ]);

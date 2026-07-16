@@ -73,6 +73,10 @@ async function main() {
   }
   console.log('\nReply:');
   console.log(result.reply);
+  if (result.clarify) {
+    console.log('\nClarifying question (ask_clarifying_question — clickable in the UI):');
+    result.clarify.options.forEach((option, i) => console.log(`  ${i + 1}. ${option}`));
+  }
   console.log(`\nIteration cap hit: ${result.hitIterationCap}`);
   console.log(`Duration: ${durationMs}ms`);
   console.log('──────────────────────────────────────────────\n');

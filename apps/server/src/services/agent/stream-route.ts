@@ -9,7 +9,12 @@ import {
 import { InsufficientCreditsError } from '../classifier/errors.js';
 import { runAgentTurn } from './loop.js';
 import type { ToolDispatchOutcome } from './loop.js';
-import { DRAFT_REPLY_TOOL_NAME, SEARCH_EMAILS_TOOL_NAME } from './tools.js';
+import {
+  ASK_CLARIFYING_QUESTION_TOOL_NAME,
+  DRAFT_REPLY_TOOL_NAME,
+  GET_THREAD_DETAIL_TOOL_NAME,
+  SEARCH_EMAILS_TOOL_NAME,
+} from './tools.js';
 
 export interface RunAgentChatStreamRouteParams {
   request: FastifyRequest;
@@ -21,6 +26,8 @@ export interface RunAgentChatStreamRouteParams {
 const STATUS_TEXT: Record<string, string> = {
   [SEARCH_EMAILS_TOOL_NAME]: 'Searching your inbox…',
   [DRAFT_REPLY_TOOL_NAME]: 'Preparing a draft…',
+  [GET_THREAD_DETAIL_TOOL_NAME]: 'Looking up thread details…',
+  [ASK_CLARIFYING_QUESTION_TOOL_NAME]: 'Checking which one you mean…',
 };
 
 /** The wire schema (agentMessageParamSchema) is a deliberately-narrowed, already-Zod-validated
@@ -85,7 +92,11 @@ export async function runAgentChatStreamRoute({ request, reply, userId, body }: 
           if (message) send({ type: 'status', message });
         },
         onToolResult: (outcome: ToolDispatchOutcome) => {
-          if (outcome.uiEvent) send(outcome.uiEvent);
+          // Only `draft` gets its own intermediate frame, ahead of `done` — `clarify` has no
+          // separate SSE event type; it's surfaced solely via `done.clarify` once the turn ends
+          // (see the `send({ type: 'done', ... })` call below), since ending the turn IS what an
+          // ask_clarifying_question dispatch does (see loop.ts's early-return on `clarify`).
+          if (outcome.uiEvent?.type === 'draft') send(outcome.uiEvent);
         },
       },
       controller.signal,
@@ -97,6 +108,7 @@ export async function runAgentChatStreamRoute({ request, reply, userId, body }: 
       history: toWireHistory(result.history),
       toolCalls: result.toolCalls.map((c) => ({ name: c.name, resultSummary: c.resultSummary })),
       hitIterationCap: result.hitIterationCap,
+      ...(result.clarify ? { clarify: result.clarify } : {}),
     });
     request.log.info(
       { toolCalls: result.toolCalls.length, hitIterationCap: result.hitIterationCap },

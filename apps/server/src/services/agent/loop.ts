@@ -8,13 +8,20 @@ import { InsufficientCreditsError } from '../classifier/errors.js';
 import { estimateDigestCostUsd } from '../digest/cost.js';
 import { AGENT_MODEL, MAX_AGENT_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS, agentCostCeilingUsd } from './config.js';
 import { draftReply } from './draft-reply.js';
+import { getThreadDetail } from './get-thread-detail.js';
 import { buildAgentSystemPrompt } from './prompt.js';
 import { normalizeSearchFilters, searchEmails } from './search-emails.js';
 import {
+  askClarifyingQuestionInputSchema,
   buildSearchEmailsTool,
   draftReplyInputSchema,
   draftReplyTool,
+  getThreadDetailInputSchema,
+  getThreadDetailTool,
+  askClarifyingQuestionTool,
+  ASK_CLARIFYING_QUESTION_TOOL_NAME,
   DRAFT_REPLY_TOOL_NAME,
+  GET_THREAD_DETAIL_TOOL_NAME,
   searchEmailsInputSchema,
   SEARCH_EMAILS_TOOL_NAME,
 } from './tools.js';
@@ -63,11 +70,14 @@ export function decideNextStep(message: Anthropic.Message): NextStep {
 export interface ToolDispatchOutcome {
   toolResultBlock: Anthropic.ToolResultBlockParam;
   logEntry: { name: string; input: unknown; resultSummary: string };
-  /** Set only for a successful draft_reply dispatch — the one tool result the UI renders as its
-   *  own distinct frame (see AgentTurnCallbacks.onToolResult), rather than only inside the final
-   *  reply text. Keeping "what a draft result looks like" here (where the typed DraftReplyResult
-   *  is already in scope) avoids the caller re-parsing resultSummary strings. */
-  uiEvent?: { type: 'draft'; threadId: string; draftText: string };
+  /** Set for a successful draft_reply dispatch (the UI renders it as its own distinct frame, see
+   *  AgentTurnCallbacks.onToolResult) or an ask_clarifying_question dispatch (the loop below uses
+   *  this to end the turn early and hand the question to the caller as structured data, never
+   *  scraped from prose). Keeping both shapes here — where the typed inputs/results are already in
+   *  scope — avoids the caller re-parsing resultSummary strings. */
+  uiEvent?:
+    | { type: 'draft'; threadId: string; draftText: string }
+    | { type: 'clarify'; question: string; options: string[] };
 }
 
 /**
@@ -76,8 +86,13 @@ export interface ToolDispatchOutcome {
  * every subsequent call would fail identically). Everything else — bad input, a not-found thread,
  * an unexpected DB error — becomes a relayable tool_result error, matching CLAUDE.md's "a failed
  * batch degrades gracefully" rule applied to a single tool call within a turn.
+ *
+ * Exported for dispatch-clarify.test.ts's direct unit tests of the ask_clarifying_question branch
+ * (pure — no DB/API call) — same "construct the real shape directly" convention as
+ * decide.test.ts, not a mock. The search_emails/draft_reply/get_thread_detail branches remain
+ * verified against real data via scripts/agent-dev.ts, since they do touch the DB.
  */
-async function dispatchToolCall(
+export async function dispatchToolCall(
   call: Anthropic.ToolUseBlock,
   userId: string,
   bucketNames: string[],
@@ -118,7 +133,36 @@ async function dispatchToolCall(
       };
     }
 
-    // Unreachable in practice — the tools array only ever offers these two names — but a
+    if (call.name === GET_THREAD_DETAIL_TOOL_NAME) {
+      const input = getThreadDetailInputSchema.parse(call.input);
+      const detail = await getThreadDetail(userId, input);
+      return {
+        toolResultBlock: {
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: JSON.stringify(detail ? { found: true, thread: detail } : { found: false }),
+        },
+        logEntry: { name: call.name, input, resultSummary: detail ? 'found' : 'not found' },
+      };
+    }
+
+    if (call.name === ASK_CLARIFYING_QUESTION_TOOL_NAME) {
+      const input = askClarifyingQuestionInputSchema.parse(call.input);
+      return {
+        toolResultBlock: {
+          // No DB/API call — this tool's only job is surfacing structured choices to the user.
+          // Still return a real tool_result so the next turn's history replay keeps every
+          // tool_use paired, exactly as Anthropic's API requires.
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: JSON.stringify({ presented: true }),
+        },
+        logEntry: { name: call.name, input, resultSummary: `asked: "${input.question}"` },
+        uiEvent: { type: 'clarify', question: input.question, options: input.options },
+      };
+    }
+
+    // Unreachable in practice — the tools array only ever offers these known names — but a
     // model response should never crash the loop even if it somehow names something else.
     return {
       toolResultBlock: {
@@ -151,6 +195,11 @@ export interface AgentTurnResult {
   history: Anthropic.MessageParam[];
   toolCalls: Array<{ name: string; input: unknown; resultSummary: string }>;
   hitIterationCap: boolean;
+  /** Set when this turn ended on an ask_clarifying_question call rather than a normal end_turn —
+   *  structured question + options for the UI to render as clickable choices (phase 9c). `reply`
+   *  is still populated (the question text) so a caller that ignores this field degrades to a
+   *  plain-text question instead of showing nothing. */
+  clarify?: { question: string; options: string[] };
 }
 
 /** Optional progress hooks for a caller that wants to surface activity as it happens (9b's SSE
@@ -199,7 +248,12 @@ export async function runAgentTurn(
 
   const bucketNames = (await listBuckets(userId)).map((b) => b.name);
   const system = buildAgentSystemPrompt();
-  const tools: Anthropic.Tool[] = [buildSearchEmailsTool(bucketNames), draftReplyTool];
+  const tools: Anthropic.Tool[] = [
+    buildSearchEmailsTool(bucketNames),
+    draftReplyTool,
+    getThreadDetailTool,
+    askClarifyingQuestionTool,
+  ];
   const client = getAnthropicClient();
   const ceiling = agentCostCeilingUsd();
   let spentUsd = 0;
@@ -252,6 +306,7 @@ export async function runAgentTurn(
     }
 
     const resultBlocks: Anthropic.ToolResultBlockParam[] = [];
+    let clarify: { question: string; options: string[] } | undefined;
     for (const call of step.calls) {
       callbacks.onToolStart?.(call.name);
       const outcome = await dispatchToolCall(call, userId, bucketNames);
@@ -262,8 +317,17 @@ export async function runAgentTurn(
         'agent tool call',
       );
       callbacks.onToolResult?.(outcome);
+      if (outcome.uiEvent?.type === 'clarify') clarify = outcome.uiEvent;
     }
     messages.push({ role: 'user', content: resultBlocks });
+
+    // A clarifying question ends the turn immediately, same as end_turn — there is nothing more
+    // to do until the user picks an option, and calling the model again now would just spend
+    // another billable call on a question it already asked. The tool_result pushed above keeps
+    // every tool_use paired for the next turn's history replay even though we stop here.
+    if (clarify) {
+      return { reply: clarify.question, history: messages, toolCalls, hitIterationCap: false, clarify };
+    }
   }
 
   logger.info({ iterations: MAX_TOOL_ITERATIONS }, 'agent turn stopped — iteration cap reached');

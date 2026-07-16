@@ -91,3 +91,45 @@ test('stream event union: accepts every documented event type', () => {
 test('stream event union rejects an unrecognized type', () => {
   assert.throws(() => agentStreamEventSchema.parse({ type: 'progress', message: 'x' }));
 });
+
+test('done event accepts an optional clarify payload with 2+ options', () => {
+  const parsed = agentStreamEventSchema.parse({
+    type: 'done',
+    reply: 'Which John did you mean?',
+    history: [],
+    toolCalls: [{ name: 'ask_clarifying_question', resultSummary: 'asked: "Which John?"' }],
+    hitIterationCap: false,
+    clarify: { question: 'Which John did you mean?', options: ['John Smith <js@example.com>', 'John Doe <jd@example.com>'] },
+  });
+  assert.equal(parsed.type, 'done');
+  if (parsed.type === 'done') {
+    assert.equal(parsed.clarify?.options.length, 2);
+  }
+});
+
+test('done event omits clarify fine (most turns never ask a clarifying question)', () => {
+  const parsed = agentStreamEventSchema.parse({
+    type: 'done',
+    reply: 'Done.',
+    history: [],
+    toolCalls: [],
+    hitIterationCap: false,
+  });
+  assert.equal(parsed.type, 'done');
+  if (parsed.type === 'done') {
+    assert.equal(parsed.clarify, undefined);
+  }
+});
+
+test('done event rejects a clarify payload with fewer than 2 options', () => {
+  assert.throws(() =>
+    agentStreamEventSchema.parse({
+      type: 'done',
+      reply: 'x',
+      history: [],
+      toolCalls: [],
+      hitIterationCap: false,
+      clarify: { question: 'Which one?', options: ['only one'] },
+    }),
+  );
+});

@@ -7,7 +7,8 @@ export type AgentChatStatus = 'idle' | 'running' | 'done' | 'error';
 export type ChatTurn =
   | { id: string; kind: 'user'; text: string }
   | { id: string; kind: 'assistant'; text: string; hitIterationCap: boolean }
-  | { id: string; kind: 'draft'; threadId: string; draftText: string };
+  | { id: string; kind: 'draft'; threadId: string; draftText: string }
+  | { id: string; kind: 'clarify'; question: string; options: string[] };
 
 export interface AgentChatStreamState {
   status: AgentChatStatus;
@@ -96,7 +97,9 @@ export function useAgentChatStream() {
               statusText: null,
               transcript: [
                 ...prev.transcript,
-                { id: turnId(), kind: 'assistant', text: event.reply, hitIterationCap: event.hitIterationCap },
+                event.clarify
+                  ? { id: turnId(), kind: 'clarify', question: event.clarify.question, options: event.clarify.options }
+                  : { id: turnId(), kind: 'assistant', text: event.reply, hitIterationCap: event.hitIterationCap },
               ],
             };
           case 'error':

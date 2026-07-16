@@ -305,3 +305,19 @@ Asked the human directly; they chose to add real Gmail unread sync rather than f
 
 **Why it matters:**
 A planning document is not automatically ground truth about the current codebase, even when it was itself the product of prior research — the same "read it, don't guess it" discipline that applies to reasoning about existing code (see the Phase 4 FK-cascade entry above) applies just as much to a spec document proposing new code. Verified against real data end-to-end afterward: re-synced the live Gmail account, confirmed a realistic unread/read split (57 unread / 143 read of 200), and exercised the filter through a live `search_emails` call ("Do I have any unread emails from Palantir?" correctly returned only the 4 real unread Palantir threads).
+
+### [Phase 9c] — `onToolResult` callback tried to forward a `clarify` payload as a top-level SSE frame — 2026-07-16
+**What Claude Code generated first:**
+Adding the `ask_clarifying_question` tool, `stream-route.ts`'s existing `onToolResult` callback (`if (outcome.uiEvent) send(outcome.uiEvent)`) was left unchanged even though `ToolDispatchOutcome.uiEvent` was widened from a `draft`-only shape to a `draft | clarify` union.
+
+**What was wrong / the risk:**
+`clarify` was designed to surface only inside the final `done` frame (`done.clarify`), not as its own SSE event type — `AgentStreamEvent`'s discriminated union has no top-level `clarify` variant. The unchanged callback would have tried to `send({ type: 'clarify', ... })` as an intermediate frame the moment the tool was dispatched, which doesn't match the wire schema at all.
+
+**How it was caught:**
+Typecheck (`tsc`): `Type '{ type: "clarify"; ... }' is not assignable to parameter of type '{ type: "started" } | ... | { type: "error"; ... }'` — the widened union was no longer assignable to `send()`'s parameter type, since `send` is typed against `AgentStreamEvent`.
+
+**The fix:**
+Narrowed the callback to `if (outcome.uiEvent?.type === 'draft') send(outcome.uiEvent)` — only `draft` gets an intermediate frame ahead of `done`; `clarify` is read directly off `result.clarify` and spread into the single `done` frame once the turn actually ends (loop.ts's early-return path).
+
+**Why it matters:**
+A one-line type widening (`uiEvent`'s union) had a call site three files away that assumed the old, narrower shape — exactly the class of bug strict typechecking across workspace boundaries is meant to catch before it becomes a runtime protocol mismatch between server and client.

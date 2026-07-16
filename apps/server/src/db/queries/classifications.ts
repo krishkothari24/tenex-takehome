@@ -196,3 +196,35 @@ export async function getEmailWithClassification(emailId: string, userId: string
     .limit(1);
   return row ?? null;
 }
+
+/** Same joined shape as `getEmailWithClassification`, keyed on Gmail's thread id instead of the
+ *  internal row id (docs/AGENTIC_CHAT_PLAN.md phase 9c's `get_thread_detail` tool takes a
+ *  thread_id, as surfaced by search_emails, never an internal id). Null if the thread doesn't
+ *  exist or isn't owned by this user — never trust a model-supplied thread_id without this, same
+ *  ownership-check rationale as `findEmailByThreadForUser` in `../queries/emails.ts`. */
+export async function getThreadDetailForUser(gmailThreadId: string, userId: string) {
+  const [row] = await db
+    .select({
+      subject: emails.subject,
+      fromAddress: emails.fromAddress,
+      snippet: emails.snippet,
+      internalDate: emails.internalDate,
+      messageCount: emails.messageCount,
+      hasReplyFromUser: emails.hasReplyFromUser,
+      isUnread: emails.isUnread,
+      bucket: primaryBucket.name,
+      secondaryBucket: secondaryBucket.name,
+      confidence: classificationResults.confidence,
+      justification: classificationResults.justification,
+      status: classificationResults.status,
+      hasDeadline: classificationResults.hasDeadline,
+      deadlineText: classificationResults.deadlineText,
+    })
+    .from(emails)
+    .leftJoin(classificationResults, eq(classificationResults.emailId, emails.id))
+    .leftJoin(primaryBucket, eq(classificationResults.bucketId, primaryBucket.id))
+    .leftJoin(secondaryBucket, eq(classificationResults.secondaryBucketId, secondaryBucket.id))
+    .where(and(eq(emails.userId, userId), eq(emails.gmailThreadId, gmailThreadId)))
+    .limit(1);
+  return row ?? null;
+}
