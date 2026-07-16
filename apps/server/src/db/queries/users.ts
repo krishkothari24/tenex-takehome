@@ -79,3 +79,9 @@ export async function updateUserTokens(
 export async function markUserRevoked(id: string) {
   await db.update(users).set({ revokedAt: new Date(), updatedAt: new Date() }).where(eq(users.id, id));
 }
+
+/** "Delete my data" — every FK to users.id (emails, buckets, digests, ...) cascades, so this is
+ *  the one query that needs to run. */
+export async function deleteUser(id: string) {
+  await db.delete(users).where(eq(users.id, id));
+}

@@ -14,6 +14,7 @@ import {
   BatchClassificationError,
   CostCeilingExceededError,
   EmptyBucketSetError,
+  InsufficientCreditsError,
   TooManyEmailsError,
 } from './errors.js';
 import { buildBatchUserMessage, buildClassifyTool, buildSystemPrompt } from './prompt.js';
@@ -141,10 +142,18 @@ export async function classifyEmails(
     };
   }
 
+  // Once one batch hits a depleted credit balance, every other batch is guaranteed to fail the
+  // same way — there's nothing batch-specific about it, so it isn't the per-batch partial-failure
+  // isolation below handles. Batches already in flight when this is set still finish their (doomed)
+  // call, but anything still queued behind the concurrency limit short-circuits instead of paying
+  // for an API round trip it already knows the answer to.
+  let insufficientCredits: InsufficientCreditsError | null = null;
+
   const limit = pLimit(concurrency);
   const outcomes = await Promise.allSettled(
     batches.map((batch, batchIndex) =>
       limit(async (): Promise<BatchOutcome> => {
+        if (insufficientCredits) throw insufficientCredits;
         try {
           const { classifications, usage } = await classifyBatch(batch, buckets);
           const outcome: BatchOutcome = {
@@ -157,6 +166,10 @@ export async function classifyEmails(
           await options.onBatchComplete?.(outcome);
           return outcome;
         } catch (err) {
+          if (err instanceof InsufficientCreditsError) {
+            insufficientCredits = err;
+            throw err;
+          }
           // Partial-failure isolation: one bad batch never fails the others.
           const usage = err instanceof BatchClassificationError ? err.usage : { ...ZERO_USAGE };
           const outcome: BatchOutcome = {
@@ -173,6 +186,10 @@ export async function classifyEmails(
       }),
     ),
   );
+
+  // A depleted credit balance fails the whole run loud, rather than reporting N identical
+  // per-batch failures — the SSE route surfaces this as one clear, actionable error.
+  if (insufficientCredits) throw insufficientCredits;
 
   const classifications: EmailClassification[] = [];
   const unclassifiedEmailIds: string[] = [];

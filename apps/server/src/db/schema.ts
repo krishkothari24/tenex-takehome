@@ -80,12 +80,73 @@ export const classificationResults = pgTable(
     }),
     confidence: real('confidence'),
     justification: text('justification'),
-    // Model-estimated reading/response minutes for this specific email (build guide §6's
-    // time-cost dashboard tile) — null exactly when status is 'unclassified'.
-    estimatedReadMinutes: real('estimated_read_minutes'),
+    // Deadline/urgency signal (build guide §6 stretch), extracted in the same batched call —
+    // hasDeadline is null (not false) and deadlineText is null exactly when status is
+    // 'unclassified'.
+    hasDeadline: boolean('has_deadline'),
+    deadlineText: text('deadline_text'),
+    // True when the user manually moved this email to a bucket (via PATCH /api/emails/:id/bucket)
+    // rather than the classifier — the reclassify pipeline skips these emails entirely (never
+    // re-sent to Haiku), so a correction can't be silently clobbered by the next full re-run.
+    isManualOverride: boolean('is_manual_override').notNull().default(false),
     status: text('status').notNull().default('classified'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [unique('classification_results_email_unique').on(table.emailId)],
+);
+
+// One row per generated digest (append-only, not upserted) — "regenerate" creates a new row so
+// the cost/history of past runs is never lost; the API always reads the most recent by createdAt.
+export const digests = pgTable('digests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  headline: text('headline').notNull(),
+  actionItems: jsonb('action_items').notNull(),
+  fyiCount: integer('fyi_count').notNull(),
+  inputEmailCount: integer('input_email_count').notNull(),
+  costUsd: real('cost_usd').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Append-only audit trail of every manual (email, correctedBucket) pair — both what makes an
+// override durable and, per build guide §5.7, exactly the feedback-loop data a production system
+// would fold back into the eval set. `fromAddress` is denormalized (not a join through emails)
+// because sender-rule suggestion groups by it directly and shouldn't need to touch `emails` again.
+export const bucketCorrections = pgTable('bucket_corrections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  emailId: uuid('email_id')
+    .notNull()
+    .references(() => emails.id, { onDelete: 'cascade' }),
+  fromAddress: text('from_address'),
+  fromBucketId: uuid('from_bucket_id').references(() => buckets.id, { onDelete: 'set null' }),
+  toBucketId: uuid('to_bucket_id')
+    .notNull()
+    .references(() => buckets.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// A standing "always put mail from this sender in this bucket" rule, created by accepting a
+// sender-rule suggestion. Applied before classification even runs (see stream-route.ts) — a
+// ruled sender is assigned directly and never sent to Haiku, same cost/consistency reasoning as
+// `isManualOverride`. One active rule per (user, sender).
+export const senderRules = pgTable(
+  'sender_rules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    fromAddress: text('from_address').notNull(),
+    bucketId: uuid('bucket_id')
+      .notNull()
+      .references(() => buckets.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('sender_rules_user_address_unique').on(table.userId, table.fromAddress)],
 );

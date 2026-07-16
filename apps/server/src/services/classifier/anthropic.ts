@@ -22,3 +22,17 @@ export function getAnthropicClient(): Anthropic {
   }
   return client;
 }
+
+/**
+ * True when an Anthropic API error means the account is out of prepaid credits (no auto-reload
+ * configured). Checked via the SDK's `.type` field first (`billing_error`, distinct from
+ * `permission_error` even though both surface as HTTP 403) and falls back to a message match since
+ * `.type` isn't part of the SDK's exhaustively-typed error surface. This is not retryable — the
+ * SDK's own `maxRetries` already gave up before this reaches caller code, and the wall doesn't move
+ * until a human adds credits.
+ */
+export function isInsufficientCreditsError(err: unknown): boolean {
+  if (!(err instanceof Anthropic.APIError)) return false;
+  if ((err as { type?: string }).type === 'billing_error') return true;
+  return /credit balance/i.test(err.message);
+}

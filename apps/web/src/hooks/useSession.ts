@@ -37,5 +37,12 @@ export function useSession() {
     setUser(null);
   }, []);
 
-  return { user, loading, signIn, signOut, refresh };
+  // "Delete my data" (build guide §8's named production gap) — revokes Google access and
+  // cascade-deletes every row tied to this user, then signs out the same way signOut does.
+  const disconnectAndDelete = useCallback(async () => {
+    await api.disconnectAndDelete();
+    setUser(null);
+  }, []);
+
+  return { user, loading, signIn, signOut, disconnectAndDelete, refresh };
 }

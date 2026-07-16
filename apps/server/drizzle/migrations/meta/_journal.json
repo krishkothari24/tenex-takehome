@@ -22,6 +22,34 @@
       "when": 1784126893093,
       "tag": "0002_superb_vector",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784139106621,
+      "tag": "0003_deadline_detection",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784139529847,
+      "tag": "0004_weekly_digest",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784144652942,
+      "tag": "0005_manual_overrides_and_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784204161612,
+      "tag": "0006_drop_estimated_read_minutes",
+      "breakpoints": true
     }
   ]
 }

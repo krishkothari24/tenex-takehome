@@ -177,3 +177,67 @@ Ran `npm run build -w packages/shared` to regenerate `dist/` before re-running t
 
 **Why it matters:**
 A monorepo workspace boundary (`src` vs. built `dist`) can produce a typecheck failure that looks like an application bug but is actually a build-order gotcha — worth remembering (and worth eventually scripting as a `pretypecheck` step) any time a shared-package schema changes.
+
+### [Phase 6] — Dry-run verification wiped 200 real classification rows — 2026-07-15
+**What Claude Code generated first:**
+To verify the new `hasDeadline`/`deadlineText` fields flowed through the pipeline at $0 before spending real money, ran `CLASSIFIER_DRY_RUN=true npm run classify:dev -w apps/server -- --confirm` directly against the dev database.
+
+**What was wrong / the risk:**
+The dry-run kill switch's documented behavior (`config.ts`'s `isDryRun()`, `pipeline.ts:120-142`) is to mark *every targeted email* `unclassified` in the DB — that's how it "exercises the plumbing" at zero API cost. The database already held 200 real, previously-classified emails (real bucket assignments, confidences, justifications) for the signed-in user. The command was run without first checking whether the target database held real, non-disposable data — it overwrote all 200 rows to `status: 'unclassified'`, discarding every existing classification.
+
+**How it was caught:**
+Manual review — querying `classification_results` immediately after the dry run and seeing `{status: 'unclassified', count: 200}` where a healthy distribution across buckets was expected.
+
+**The fix:**
+Attempted an immediate real (`--confirm`, no dry-run) re-classify to regenerate the lost data, which surfaced a second problem: `ANTHROPIC_API_KEY` in `.env` is empty (0 characters) in this sandbox, so the classifications cannot currently be regenerated at all. The 200 `emails` rows (subject/snippet/sender/etc.) are untouched and intact — only the derived `classification_results` were lost, and they are re-derivable once a real key is available. Flagged directly to the human rather than continuing to build on top of it; did not attempt any further workaround (e.g. fabricating placeholder classifications) that would mask the data loss.
+
+**Why it matters:**
+`git status` before a destructive git command is the established habit for code; this is the same discipline applied to a database — check what a "$0, safe, exercises the plumbing" command actually does to *existing* data before running it against anything that isn't disposable seed data. A dry-run flag lowering *API* cost to zero does not mean the command is non-destructive to the database.
+
+### [Phase 7] — Live reclassify never updated a card's deadline badge in the UI — 2026-07-15
+**What Claude Code generated first:**
+Phase 6's `App.tsx` classify-stream merge effect (`prev.map(...)` around the `isAmbiguous` field) copied `bucket`, `secondaryBucket`, `confidence`, `justification`, `status`, and `isAmbiguous` from each incoming `EmailClassification` onto local email state, but not `hasDeadline`/`deadlineText` — even though those fields were added to the same `EmailClassification` type in that same phase.
+
+**What was wrong / the risk:**
+A live classify or reclassify run would persist the new `hasDeadline`/`deadlineText` correctly to Postgres (via `upsertClassification`) and the SSE event carried the right values, but the deadline badge on `EmailCard` wouldn't update until the next full page reload (`GET /api/emails`) — the exact "looks right in the DB, wrong on screen" gap a reviewer reading the diff wouldn't catch either, since the merge effect's shape looked complete at a glance.
+
+**How it was caught:**
+Discovered while building Feature 1's sender-rule-application path, which emits a synthetic `batch` SSE event carrying a ruled email's *existing* `hasDeadline`/`deadlineText` so the board can show it without a reload — tracing that path through the merge effect surfaced that the two fields were never being read from `update` at all.
+
+**The fix:**
+Added `hasDeadline: update.hasDeadline` and `deadlineText: update.deadlineText` to the merge effect's returned object, so both live classify and reclassify runs update the badge immediately, matching every other classification-derived field.
+
+**Why it matters:**
+The same "verify by tracing an actual data path end to end" discipline that caught the Phase 3 StrictMode double-classify bug — a field added to a shared type doesn't automatically reach every consumer of that type, and nothing short of tracing a concrete new code path (here, the sender-rule feature) surfaced that this one had been silently dropped since the field was introduced.
+
+### [Phase 7] — `client.messages.create()` had no error handling for a depleted Anthropic credit balance — 2026-07-15
+**What Claude Code generated first:**
+`classifyBatch` (classifier/batch.ts) and `generateDigest` (digest/generate.ts) each called `client.messages.create(...)` with no surrounding try/catch — only the downstream Zod validation was wrapped. A billing/auth-level SDK error (e.g. a depleted credit balance) would throw straight out of the function unhandled instead of going through the existing corrective-retry or partial-failure-isolation paths.
+
+**What was wrong / the risk:**
+For classification specifically, this meant every concurrent batch would independently hit the same wall and pay for the same doomed API round trip, then report N near-identical "batch failed" messages with the raw SDK error text instead of one clear, actionable top-level error — the exact opposite of CLAUDE.md's "failed batch degrades gracefully" intent, since a depleted balance is an account-level condition, not a per-batch data problem.
+
+**How it was caught:**
+Manual review, prompted by a user question about billing behavior (does it keep charging, what error comes back) — tracing the actual call sites showed the `messages.create()` call itself sat outside every try/catch in both files.
+
+**The fix:**
+Added `isInsufficientCreditsError()` (classifier/anthropic.ts, checks the SDK's `.type === 'billing_error'` with a message-text fallback) and a dedicated `InsufficientCreditsError`. Both call sites now catch the API call specifically, skip the pointless corrective retry, and throw immediately. `classifyEmails` short-circuits any batch not yet started once one batch hits this error and propagates it as a whole-run failure (`INSUFFICIENT_CREDITS` SSE code) rather than N duplicate per-batch failures; the digest route does the same.
+
+**Why it matters:**
+Matches CLAUDE.md's non-negotiable on graceful batch degradation, and turns an opaque "classification failed" wall of red text into one clear, actionable message telling the user exactly what happened and what to do about it — without wasting API round trips on calls already known to fail.
+
+### [Phase 8] — Signed-out visitors got stuck on "Checking your inbox…" forever — 2026-07-15
+**What Claude Code generated first (pre-existing, found during this phase's own verification, not part of this phase's diff):**
+`App.tsx`'s top-level render gate was `if (loading || phase === 'checking') return <Checking...>`. `phase` starts at `'checking'` and only ever advances via `loadBoard()`, which the bootstrap effect calls exclusively when `user` is truthy.
+
+**What was wrong / the risk:**
+For a signed-out visitor, `user` never becomes truthy, so `loadBoard()` never runs and `phase` never leaves `'checking'` — even after `useSession`'s `loading` correctly resolves to `false` on the 401 from `/auth/me`. The "Sign in with Google" button (gated behind a separate `if (!user)` check further down) was unreachable code for that entire user segment. Every prior manual test session had a real signed-in cookie already in the browser, so this path was never exercised.
+
+**How it was caught:**
+Manual browser verification (Playwright) for this phase's own changes — driving a cold, cookie-less load of the app to confirm no runtime errors surfaced this instead: the page was stuck on "Checking your inbox…" with zero console/page errors. Instrumented `useSession`'s `refresh()` with temporary diagnostic logging to confirm `loading` did reach `false` and `user` did reach `null`, proving the bug was in the render gate's `phase` check, not the session hook.
+
+**The fix:**
+Split the single `if (loading || phase === 'checking')` gate into three ordered checks: `loading` alone, then `!user`, then `phase === 'checking'` (now only reachable for a signed-in user whose `loadBoard()` hasn't resolved yet — a narrow, real window, not a permanent trap).
+
+**Why it matters:**
+A first-time or signed-out visitor is the very first impression of the app, and this bug meant that impression was a permanently frozen loading screen with no way forward — the kind of gap that's invisible in every "already logged in" dev session (including the human's own prior local testing) and only surfaces by deliberately testing the unauthenticated path.
