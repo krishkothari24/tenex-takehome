@@ -14,10 +14,11 @@ import { useDigestStream } from './hooks/useDigestStream';
 import { BucketBoard } from './components/BucketBoard';
 import { Dashboard } from './components/Dashboard';
 import { CreateBucketForm } from './components/CreateBucketForm';
+import { BucketPicker } from './components/BucketPicker';
 import { DisconnectAccountButton } from './components/DisconnectAccountButton';
 import { SenderRuleSuggestionBanner } from './components/SenderRuleSuggestion';
 
-type Phase = 'checking' | 'no-emails' | 'syncing' | 'sync-error' | 'board-error' | 'board';
+type Phase = 'checking' | 'no-emails' | 'syncing' | 'sync-error' | 'board-error' | 'choosing-buckets' | 'board';
 type View = 'dashboard' | 'board';
 
 export default function App() {
@@ -31,12 +32,16 @@ export default function App() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [digest, setDigest] = useState<Digest | null>(null);
   const [ruleSuggestions, setRuleSuggestions] = useState<SenderRuleSuggestion[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const classify = useClassifyStream();
   const digestStream = useDigestStream();
 
   // Loads persisted emails from Postgres. Zero synced emails → the sign-in-style "Sync my
-  // inbox" gate. Otherwise render the board immediately (the instant-reopen path, build guide
-  // §4 step 6) and, if any email hasn't been classified yet, kick off the SSE classify stream.
+  // inbox" gate. Zero buckets (a brand-new user — nothing auto-seeds server-side anymore) → the
+  // opt-in bucket picker. Otherwise render the board immediately (the instant-reopen path, build
+  // guide §4 step 6) and, if any email hasn't been classified yet, kick off the SSE classify
+  // stream.
   const loadBoard = useCallback(async () => {
     setErrorMessage(null);
     try {
@@ -46,6 +51,12 @@ export default function App() {
         return;
       }
       const bucketsRes = await api.listBuckets();
+      if (bucketsRes.buckets.length === 0) {
+        setBuckets([]);
+        setEmails(emailsRes.emails);
+        setPhase('choosing-buckets');
+        return;
+      }
       setBuckets(bucketsRes.buckets);
       setEmails(emailsRes.emails);
       setPhase('board');
@@ -140,14 +151,60 @@ export default function App() {
     );
   }, [classify.classifications]);
 
+  // The opt-in picker's submit — creates the selected defaults (one bulk call) and any staged
+  // custom names (sequential, reusing the same single-bucket POST the "Add bucket" form uses),
+  // then reloads. loadBoard()'s own bucket-count check now finds a non-empty set and falls
+  // through to `phase: 'board'`, firing the first-ever `classify.start()` itself — no separate
+  // reclassify call needed here, since this is an initial classify pass, not a bucket-set change.
+  async function handleFinishBucketPicker(selectedDefaultNames: string[], customNames: string[]) {
+    if (selectedDefaultNames.length > 0) await api.createDefaultBuckets(selectedDefaultNames);
+    for (const name of customNames) await api.createBucket(name);
+    await loadBoard();
+  }
+
   // Create → append the new (empty) column immediately, so it's visible before any
   // classification result arrives — its own small "fast and alive" beat — then trigger the full
   // reclassify stream. `classify.start` already aborts any prior in-flight stream (its existing
   // abortRef guard), so mashing "Add bucket" repeatedly can't fire two concurrent billable runs.
-  async function handleCreateBucket(name: string) {
-    const { bucket } = await api.createBucket(name);
+  async function handleCreateBucket(name: string, description?: string) {
+    const { bucket } = await api.createBucket(name, description);
     setBuckets((prev) => [...prev, bucket]);
     void classify.start(api.reclassifyStream);
+  }
+
+  // Drag-to-reorder bucket *columns* (not emails — see BucketBoard's doc comment). Optimistic
+  // local reorder so the drag feels instant; on failure, refetch truth rather than hand-rolling a
+  // revert, same pattern as the other mutation handlers below.
+  async function handleReorderBuckets(orderedIds: string[]) {
+    setBuckets((prev) => {
+      const byId = new Map(prev.map((b) => [b.id, b]));
+      return orderedIds.map((id, index) => ({ ...byId.get(id)!, sortOrder: index }));
+    });
+    try {
+      await api.reorderBuckets(orderedIds);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Could not save the new bucket order.');
+      await loadBoard();
+    }
+  }
+
+  // Deleting a bucket immediately unsorts any emails that were in it (rather than leaving them
+  // pointed at a bucket that no longer exists) so they show up under "Unsorted" right away, then
+  // triggers the same full-reclassify-on-bucket-set-change path used for bucket *creation* (build
+  // guide §5.6) so those emails get properly re-sorted into the remaining buckets.
+  async function handleDeleteBucket(bucketId: string) {
+    const deleted = buckets.find((b) => b.id === bucketId);
+    setBuckets((prev) => prev.filter((b) => b.id !== bucketId));
+    if (deleted) {
+      setEmails((prev) => prev.map((e) => (e.bucket === deleted.name ? { ...e, bucket: null } : e)));
+    }
+    try {
+      await api.deleteBucket(bucketId);
+      void classify.start(api.reclassifyStream);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Could not delete that bucket.');
+      await loadBoard();
+    }
   }
 
   // The manual correction (build guide §5.7's feedback-loop seed) — merges the server's response
@@ -204,7 +261,29 @@ export default function App() {
     }
   }
 
-  if (loading || phase === 'checking') {
+  // The always-available counterpart to handleSync's onboarding-only gate: lets the user pull new
+  // Gmail threads without leaving the populated board. Local `isSyncing` (not `phase`) so the
+  // board stays mounted while this runs — `phase='syncing'` unmounts everything, which is right
+  // for onboarding but wrong for a resync mid-session. Reuses the same idempotent
+  // /api/inbox/sync + loadBoard() pair, so any newly-inserted emails fall through loadBoard's
+  // existing `status === null` check and get classified automatically.
+  async function handleManualSync() {
+    setIsSyncing(true);
+    setErrorMessage(null);
+    setSyncMessage(null);
+    try {
+      const res = await api.syncInbox();
+      await loadBoard();
+      const failedNote = res.failed.length > 0 ? ` (${res.failed.length} couldn't be read)` : '';
+      setSyncMessage(`Checked your inbox — ${res.count} thread${res.count === 1 ? '' : 's'} synced${failedNote}.`);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Could not check for new emails.');
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  if (loading) {
     return (
       <Centered>
         <p>Checking your inbox…</p>
@@ -219,6 +298,20 @@ export default function App() {
         <button onClick={signIn} className="mt-4 rounded-md bg-indigo-500 px-4 py-2 font-medium text-white hover:bg-indigo-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300">
           Sign in with Google
         </button>
+      </Centered>
+    );
+  }
+
+  // Narrow window: signed in, but the bootstrap effect's loadBoard() hasn't resolved a phase
+  // yet — `phase` only leaves 'checking' via loadBoard, which is itself gated on `user` being
+  // truthy (see the bootstrap effect above), so this branch must come after the `!user` check,
+  // not be folded into the `loading` check above — a signed-out visitor's `phase` never advances,
+  // and conflating the two left them stuck on "Checking your inbox…" forever instead of reaching
+  // the sign-in button.
+  if (phase === 'checking') {
+    return (
+      <Centered>
+        <p>Checking your inbox…</p>
       </Centered>
     );
   }
@@ -238,6 +331,21 @@ export default function App() {
           {phase === 'syncing' ? 'Reading your last 200 threads…' : 'Sync my inbox'}
         </button>
         {phase === 'sync-error' && errorMessage && <p className="mt-3 text-red-400">{errorMessage}</p>}
+      </Centered>
+    );
+  }
+
+  if (phase === 'choosing-buckets') {
+    return (
+      <Centered>
+        <h1 className="text-2xl font-semibold">Set up your buckets</h1>
+        <p className="mt-2 max-w-md text-center text-sm text-slate-400">
+          Pick a starting taxonomy, add your own, or both — you can always add or delete more later.
+        </p>
+        <div className="mt-4 w-full max-w-lg">
+          <BucketPicker onFinish={handleFinishBucketPicker} />
+        </div>
+        {errorMessage && <p className="mt-3 text-red-400">{errorMessage}</p>}
       </Centered>
     );
   }
@@ -263,6 +371,13 @@ export default function App() {
           <h1 className="text-2xl font-semibold">Inbox Concierge</h1>
           <div className="flex items-center gap-3">
             <span className="text-sm text-slate-400">{user.email}</span>
+            <button
+              onClick={() => void handleManualSync()}
+              disabled={isSyncing}
+              className="rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+            >
+              {isSyncing ? 'Checking…' : 'Check for new emails'}
+            </button>
             <DisconnectAccountButton onConfirm={() => void disconnectAndDelete()} />
             <button
               onClick={signOut}
@@ -288,6 +403,7 @@ export default function App() {
         </div>
 
         <div aria-live="polite" role="status" className="space-y-1">
+          {syncMessage && !isSyncing && <p className="text-sm text-slate-400">{syncMessage}</p>}
           {classify.status === 'running' && (
             <p className="text-sm text-slate-400">
               Sorting your inbox…{' '}
@@ -343,7 +459,13 @@ export default function App() {
                 ))}
               </div>
             )}
-            <BucketBoard buckets={buckets} emails={emails} onMoveEmail={handleMoveEmail} />
+            <BucketBoard
+              buckets={buckets}
+              emails={emails}
+              onMoveEmail={handleMoveEmail}
+              onReorderBuckets={handleReorderBuckets}
+              onDeleteBucket={(bucketId) => void handleDeleteBucket(bucketId)}
+            />
           </>
         )}
       </div>

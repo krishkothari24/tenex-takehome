@@ -1,4 +1,4 @@
-import { motion, useReducedMotion } from 'framer-motion';
+import { motion, useDragControls, useReducedMotion } from 'framer-motion';
 import * as Popover from '@radix-ui/react-popover';
 import type { Bucket, EmailWithClassification } from '@inbox-concierge/shared';
 
@@ -7,6 +7,10 @@ interface EmailCardProps {
   bucketColor: string | null;
   buckets: Bucket[];
   onMove: (emailId: string, bucketId: string) => void;
+  /** Fires on drag release with the pointer's viewport coordinates — `BucketBoard` resolves which
+   *  column (if any) is under that point via `document.elementFromPoint` and calls `onMove` for a
+   *  valid drop; a no-op elsewhere just leaves the classification untouched. */
+  onDragEnd: (emailId: string, clientX: number, clientY: number) => void;
 }
 
 /**
@@ -22,13 +26,18 @@ interface EmailCardProps {
  * *fact* of ambiguity, the popover is the *reason*, per §5.4's "hover/click to see why."
  *
  * The "move to a different bucket" affordance (a feedback-loop seed) is a third icon in the same
- * row rather than drag-and-drop — full keyboard/screen-reader support for free, matching the a11y
- * investment the rest of this card already makes, at a fraction of the build cost.
+ * row (Popover-based, full keyboard/screen-reader support) — the *only* move path for keyboard/
+ * screen-reader users, so it stays even though drag-and-drop (below) now also exists as a faster
+ * mouse-only alternative. Drag is deliberately gated to a dedicated grip handle
+ * (`dragListener={false}` + `useDragControls`) rather than the whole card, so it can't fight the
+ * column's own vertical scroll or hijack normal clicks on the card's other icon-buttons; the
+ * handle itself is `aria-hidden`/`tabIndex={-1}` since it has no keyboard equivalent.
  */
-export function EmailCard({ email, bucketColor, buckets, onMove }: EmailCardProps) {
+export function EmailCard({ email, bucketColor, buckets, onMove, onDragEnd }: EmailCardProps) {
   const isUnclassified = email.status === 'unclassified';
   const isAmbiguous = email.isAmbiguous === true;
   const reduceMotion = useReducedMotion();
+  const dragControls = useDragControls();
 
   return (
     <motion.article
@@ -38,9 +47,37 @@ export function EmailCard({ email, bucketColor, buckets, onMove }: EmailCardProp
       animate={{ opacity: 1, y: 0 }}
       exit={reduceMotion ? { opacity: 1 } : { opacity: 0 }}
       transition={{ duration: reduceMotion ? 0 : 0.25 }}
+      drag={!reduceMotion}
+      dragControls={dragControls}
+      dragListener={false}
+      dragSnapToOrigin
+      dragElastic={0.12}
+      whileDrag={{ scale: 1.03, zIndex: 30, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
+      onDragEnd={(event) => {
+        const point = event as PointerEvent;
+        if (typeof point.clientX === 'number') onDragEnd(email.emailId, point.clientX, point.clientY);
+      }}
       className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm"
     >
       <div className="flex items-start justify-between gap-2">
+        {!reduceMotion && (
+          <button
+            type="button"
+            onPointerDown={(e) => dragControls.start(e)}
+            aria-hidden="true"
+            tabIndex={-1}
+            className="-ml-1 mt-0.5 shrink-0 cursor-grab touch-none rounded p-0.5 text-slate-700 hover:text-slate-500 active:cursor-grabbing"
+          >
+            <svg viewBox="0 0 16 16" width="10" height="14" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="3" r="1.2" />
+              <circle cx="11" cy="3" r="1.2" />
+              <circle cx="5" cy="8" r="1.2" />
+              <circle cx="11" cy="8" r="1.2" />
+              <circle cx="5" cy="13" r="1.2" />
+              <circle cx="11" cy="13" r="1.2" />
+            </svg>
+          </button>
+        )}
         <p className="truncate text-sm font-medium text-slate-100">{email.subject || '(no subject)'}</p>
         {bucketColor && (
           <span className="mt-1 flex shrink-0 items-center gap-1">

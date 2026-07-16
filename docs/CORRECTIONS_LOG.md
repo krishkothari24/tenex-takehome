@@ -225,3 +225,19 @@ Added `isInsufficientCreditsError()` (classifier/anthropic.ts, checks the SDK's 
 
 **Why it matters:**
 Matches CLAUDE.md's non-negotiable on graceful batch degradation, and turns an opaque "classification failed" wall of red text into one clear, actionable message telling the user exactly what happened and what to do about it — without wasting API round trips on calls already known to fail.
+
+### [Phase 8] — Signed-out visitors got stuck on "Checking your inbox…" forever — 2026-07-15
+**What Claude Code generated first (pre-existing, found during this phase's own verification, not part of this phase's diff):**
+`App.tsx`'s top-level render gate was `if (loading || phase === 'checking') return <Checking...>`. `phase` starts at `'checking'` and only ever advances via `loadBoard()`, which the bootstrap effect calls exclusively when `user` is truthy.
+
+**What was wrong / the risk:**
+For a signed-out visitor, `user` never becomes truthy, so `loadBoard()` never runs and `phase` never leaves `'checking'` — even after `useSession`'s `loading` correctly resolves to `false` on the 401 from `/auth/me`. The "Sign in with Google" button (gated behind a separate `if (!user)` check further down) was unreachable code for that entire user segment. Every prior manual test session had a real signed-in cookie already in the browser, so this path was never exercised.
+
+**How it was caught:**
+Manual browser verification (Playwright) for this phase's own changes — driving a cold, cookie-less load of the app to confirm no runtime errors surfaced this instead: the page was stuck on "Checking your inbox…" with zero console/page errors. Instrumented `useSession`'s `refresh()` with temporary diagnostic logging to confirm `loading` did reach `false` and `user` did reach `null`, proving the bug was in the render gate's `phase` check, not the session hook.
+
+**The fix:**
+Split the single `if (loading || phase === 'checking')` gate into three ordered checks: `loading` alone, then `!user`, then `phase === 'checking'` (now only reachable for a signed-in user whose `loadBoard()` hasn't resolved yet — a narrow, real window, not a permanent trap).
+
+**Why it matters:**
+A first-time or signed-out visitor is the very first impression of the app, and this bug meant that impression was a permanently frozen loading screen with no way forward — the kind of gap that's invisible in every "already logged in" dev session (including the human's own prior local testing) and only surfaces by deliberately testing the unauthenticated path.

@@ -8,6 +8,27 @@ import type { DashboardAnalytics } from '@inbox-concierge/shared';
 const SENDER_BAR_COLOR = '#3987e5';
 const AXIS_COLOR = '#94a3b8';
 const GRID_COLOR = '#1e293b';
+const AXIS_LABEL_MAX_CHARS = 18;
+
+function truncateLabel(label: string): string {
+  return label.length > AXIS_LABEL_MAX_CHARS ? `${label.slice(0, AXIS_LABEL_MAX_CHARS - 1)}…` : label;
+}
+
+/** Long, display-name-less sender addresses (e.g. `notifications@s.greenhouse-mail.io`) would
+ *  otherwise get clipped by the SVG viewport with no ellipsis — Tailwind's `truncate` doesn't
+ *  apply to SVG `<text>`. A `<title>` on the wrapping `<g>` restores hover-for-full-text, matching
+ *  what the Tooltip already gives you when hovering the bar itself. */
+function SenderAxisTick({ x, y, payload }: { x?: number; y?: number; payload?: { value: string } }) {
+  const value = payload?.value ?? '';
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{value}</title>
+      <text dx={-6} dy={4} textAnchor="end" fill={AXIS_COLOR} fontSize={12}>
+        {truncateLabel(value)}
+      </text>
+    </g>
+  );
+}
 
 /** "Top senders by volume" (build guide §6). Horizontal bar, sorted desc, top 8-10 — a single
  *  ranked series needs no legend (the title already names what's plotted). */
@@ -23,8 +44,8 @@ export function SenderFrequencyChart({ data }: { data: DashboardAnalytics['topSe
             <YAxis
               type="category"
               dataKey="senderLabel"
-              width={120}
-              tick={{ fill: AXIS_COLOR, fontSize: 12 }}
+              width={130}
+              tick={<SenderAxisTick />}
               stroke={GRID_COLOR}
             />
             <Tooltip

@@ -41,11 +41,24 @@ export const api = {
   listBuckets: () => request<BucketsResponse>('/api/buckets'),
   listEmails: () => request<EmailsResponse>('/api/emails'),
   getAnalytics: () => request<DashboardAnalytics>('/api/analytics'),
-  createBucket: (name: string) =>
+  createBucket: (name: string, description?: string) =>
     request<CreateBucketResponse>('/api/buckets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, description }),
+    }),
+  reorderBuckets: (orderedIds: string[]) =>
+    request<BucketsResponse>('/api/buckets/reorder', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderedIds }),
+    }),
+  deleteBucket: (id: string) => request<void>(`/api/buckets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  createDefaultBuckets: (names: string[]) =>
+    request<BucketsResponse>('/api/buckets/defaults', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ names }),
     }),
   classifyStream: (signal: AbortSignal | null = null) => streamPost<ClassifyStreamEvent>('/api/classify', signal),
   reclassifyStream: (signal: AbortSignal | null = null) => streamPost<ClassifyStreamEvent>('/api/reclassify', signal),

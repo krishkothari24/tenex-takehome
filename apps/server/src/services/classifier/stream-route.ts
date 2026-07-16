@@ -1,7 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { ClassifyStreamEvent, EmailClassification } from '@inbox-concierge/shared';
 import { listEmailsForClassification } from '../../db/queries/emails.js';
-import { seedDefaultBuckets } from '../../db/queries/buckets.js';
+import { listBuckets } from '../../db/queries/buckets.js';
 import { markEmailsUnclassified, setManualBucket, upsertClassification } from '../../db/queries/classifications.js';
 import { listSenderRulesForUser } from '../../db/queries/sender-rules.js';
 import {
@@ -40,7 +40,7 @@ export async function runClassifyStreamRoute({
   userId,
   runLabel,
 }: RunClassifyStreamRouteParams): Promise<void> {
-  const bucketRows = await seedDefaultBuckets(userId);
+  const bucketRows = await listBuckets(userId);
   const nameToId = new Map(bucketRows.map((b) => [b.name, b.id]));
   const idToName = new Map(bucketRows.map((b) => [b.id, b.name]));
   const buckets: BucketDef[] = bucketRows.map((b) => ({ name: b.name, description: b.description }));
