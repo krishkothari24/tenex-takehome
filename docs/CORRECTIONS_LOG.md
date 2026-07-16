@@ -241,3 +241,51 @@ Split the single `if (loading || phase === 'checking')` gate into three ordered 
 
 **Why it matters:**
 A first-time or signed-out visitor is the very first impression of the app, and this bug meant that impression was a permanently frozen loading screen with no way forward — the kind of gap that's invisible in every "already logged in" dev session (including the human's own prior local testing) and only surfaces by deliberately testing the unauthenticated path.
+
+### [Phase 8] — Dragging an email card also dragged its whole column, and collapsing a bucket flashed full-width before truncating — 2026-07-15
+**What Claude Code generated first:**
+`BucketBoard.tsx` nested each `EmailCard` (its own `motion.article` with `drag` + `useDragControls`, started from a grip handle via `onPointerDown={(e) => dragControls.start(e)}`) directly inside a `Reorder.Item` (column-level drag-to-reorder) that used Framer Motion's default `dragListener={true}` and default `layout={true}`.
+
+**What was wrong / the risk:**
+`Reorder.Item`'s default `dragListener` makes the *entire column box* listen for pointerdown, so grabbing an email card's grip handle — a descendant DOM node — also armed the column's own drag-to-reorder gesture; the whole bucket column would move instead of (or along with) the single email. `e.stopPropagation()` in the card's handler wouldn't have reliably fixed this either, since `Reorder.Item`'s pan recognizer is a native `addEventListener` on an ancestor node that fires during real DOM bubble phase before React's synthetic dispatch reaches a handler that far up the tree. Separately, `Reorder.Item`'s default full `layout` animation FLIPs *size* as well as position; collapsing a column is a plain Tailwind width-class swap (`w-72` → `w-20`) with the email list unmounting instantly, so the DOM/CSS (and its `truncate` text) snapped to the narrow layout immediately while the ancestor `Reorder.Item`'s FLIP correction was still visually animating the box back down from its old expanded size — the column appeared to stay full width, then the already-truncated text caught up, reading as "expands then ellipses."
+
+**How it was caught:**
+Human manual testing after the Phase 8 commit ("the moving of each individual email sucks... the whole bucket moves with it... the collapsing... expands on the screen but then it becomes ellipses").
+
+**The fix:**
+Extracted a `DraggableBucketColumn` wrapper that owns a per-column `dragControls`, sets `dragListener={false}` + `layout="position"` on `Reorder.Item`, and only starts the column drag from a dedicated grip handle in the column header (mirroring the existing `EmailCard` handle pattern) — structurally non-overlapping gesture zones instead of racing propagation order. Also added `min-w-0` to the truncated bucket-name `<span>` (a flex item missing the override needed for `truncate` to actually constrain instead of fight its flex parent) and a `transition-[width]` on the column for a smooth, non-Framer-animated collapse.
+
+**Why it matters:**
+Both bugs shipped in a commit whose own message claimed "UX polish from first local test pass" — a reminder that "I clicked around and it looked fine" doesn't cover drag gestures or FLIP-animation timing, which only surface under an actual pointer-drag interaction or a fast collapse/expand toggle, not a static screenshot.
+
+### [Phase 4, reversed] — Inbox time-cost dashboard tile removed as a product decision — 2026-07-16
+**What Claude Code generated first:**
+Phase 4 built the "~X hours of reading" hero stat (`TimeCostHero.tsx`, `analytics/time-cost.ts`, and the `estimatedReadMinutes` field the classifier estimates per email end-to-end through the prompt, DB column, and shared schema), per the build guide's explicit framing of it as the dashboard's headline "wow" moment.
+
+**What was wrong / the risk:**
+Not a bug — a human product judgment call after using the app: the human found the stat overemphasized relative to what it actually conveys (an LLM's per-email guess summed into one number, with no action attached to it), and asked that it be removed entirely rather than reframed or demoted.
+
+**How it was caught:**
+Human rejected a previously-shipped plan/feature during manual use of the app.
+
+**The fix:**
+Removed `estimatedReadMinutes` end-to-end: the classifier prompt/tool-schema/validation no longer ask for or accept it, the DB column was dropped via a new migration (`0006_drop_estimated_read_minutes.sql`), the shared `emailClassificationSchema`/`dashboardAnalyticsSchema` no longer carry it, the analytics service no longer aggregates it, and the dashboard no longer renders `TimeCostHero`. `AttentionStat` now leads the dashboard's stat row.
+
+**Why it matters:**
+A stat that's technically correct but doesn't drive any action is still a cost — it's dashboard real estate, prompt tokens, a DB column, and a response field that all have to stay correct for a claim nobody acts on. Worth cutting once real usage shows it isn't earning its place, even when a planning doc had originally called it out as the centerpiece.
+
+### [Phase 8, plan mode] — Human rejected the white-space-below-the-fold diagnosis; re-investigation confirmed the original fix was right — 2026-07-16
+**What Claude Code generated first:**
+A plan to fix "white space below the fold on the Board tab" by repairing a malformed CSS comment in `apps/web/src/styles/index.css` (an unclosed `/*` was swallowing the file's `html, body { background-color: #020617 }` rule into a dead comment), based on a static code read plus an Explore-agent sweep.
+
+**What was wrong / the risk:**
+The human rejected this plan outright ("all that will do is just make the page below the fold blue... you need to understand the deeper idea... some height restriction on the board and inner elements"), convinced the real bug was a height-capped/clipped container, not a missing background color.
+
+**How it was caught:**
+Human rejected the plan before execution (`ExitPlanMode` denied). Re-investigated with a second independent full codebase sweep (confirmed zero `overflow: hidden` and no fixed/capped height anywhere in the ancestor chain — the theorized clipping container didn't exist), then used `AskUserQuestion` to pin down the actual runtime behavior: DevTools showed no element in the blank area, it appeared regardless of content length, but only *while actively scrolling/overscrolling past the true bottom of the page*, snapping back at rest. That combination is the exact signature of browser rubber-band overscroll, not a layout bug — confirming the original diagnosis was correct all along, and `#020617` is Tailwind's literal `slate-950` (matches the rest of the theme, not a mismatched blue).
+
+**The fix:**
+Re-submitted the same CSS fix, this time with the reasoning made explicit in the plan (tied directly to the human's own DevTools observations) so it was legible why a background-color rule fixes a "not part of the DOM" gap. Separately, also found and fixed a real, previously-unverified bug in the same area: cross-bucket email drag-and-drop was silently broken because `BucketBoard.tsx`'s `document.elementFromPoint` hit-test always resolved to the dragged card itself (elevated via `whileDrag`'s `zIndex`), never the destination column beneath it — fixed by toggling `pointerEvents: 'none'` on the dragged card during the hit-test window (`EmailCard.tsx`), plus switching the source column's list wrapper from `overflow-y-auto` to `overflow-visible` while a card from it is mid-drag (it was implicitly clipping horizontally too, per the CSS overflow spec's visible/non-visible axis-pairing rule).
+
+**Why it matters:**
+A confident-sounding human rejection ("you need to understand the deeper idea") isn't automatically correct — re-verifying against the actual code and, when that still disagreed with the human's mental model, asking targeted runtime questions rather than either blindly complying or blindly re-asserting, resolved the disagreement with evidence instead of a second guess. The drag-and-drop bug was verified end-to-end via a temporary Playwright harness (real `BucketBoard`/`EmailCard` components, real pointer-drag simulation, real `elementFromPoint` hit-testing in a headless browser) rather than by reading the fix and assuming it worked, since the original bug itself was invisible to static review and only surfaced under an actual drag gesture.
