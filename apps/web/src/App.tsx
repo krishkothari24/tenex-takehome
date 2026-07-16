@@ -11,15 +11,17 @@ import { useSession } from './hooks/useSession';
 import { api } from './api/client';
 import { useClassifyStream } from './hooks/useClassifyStream';
 import { useDigestStream } from './hooks/useDigestStream';
+import { useAgentChatStream } from './hooks/useAgentChatStream';
 import { BucketBoard } from './components/BucketBoard';
 import { Dashboard } from './components/Dashboard';
 import { CreateBucketForm } from './components/CreateBucketForm';
 import { BucketPicker } from './components/BucketPicker';
 import { DisconnectAccountButton } from './components/DisconnectAccountButton';
 import { SenderRuleSuggestionBanner } from './components/SenderRuleSuggestion';
+import { AgentChatPanel } from './components/chat/AgentChatPanel';
 
 type Phase = 'checking' | 'no-emails' | 'syncing' | 'sync-error' | 'board-error' | 'choosing-buckets' | 'board';
-type View = 'dashboard' | 'board';
+type View = 'dashboard' | 'board' | 'chat';
 
 export default function App() {
   const { user, loading, signIn, signOut, disconnectAndDelete } = useSession();
@@ -36,6 +38,7 @@ export default function App() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const classify = useClassifyStream();
   const digestStream = useDigestStream();
+  const agentChat = useAgentChatStream();
 
   // Loads persisted emails from Postgres. Zero synced emails → the sign-in-style "Sync my
   // inbox" gate. Zero buckets (a brand-new user — nothing auto-seeds server-side anymore) → the
@@ -389,7 +392,7 @@ export default function App() {
         </div>
 
         <div className="flex gap-1 rounded-lg border border-slate-800 bg-slate-900 p-1 text-sm">
-          {(['dashboard', 'board'] as const).map((v) => (
+          {(['dashboard', 'board', 'chat'] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -444,7 +447,7 @@ export default function App() {
           ) : (
             <p className="text-sm text-slate-400">Crunching your inbox numbers…</p>
           )
-        ) : (
+        ) : view === 'board' ? (
           <>
             <CreateBucketForm onCreate={handleCreateBucket} />
             {ruleSuggestions.length > 0 && (
@@ -467,6 +470,14 @@ export default function App() {
               onDeleteBucket={(bucketId) => void handleDeleteBucket(bucketId)}
             />
           </>
+        ) : (
+          <AgentChatPanel
+            transcript={agentChat.transcript}
+            status={agentChat.status}
+            statusText={agentChat.statusText}
+            errorMessage={agentChat.errorMessage}
+            onSend={(message) => void agentChat.send(message)}
+          />
         )}
       </div>
     </main>

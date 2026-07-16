@@ -7,3 +7,4 @@ export * from './schemas/analytics.js';
 export * from './schemas/buckets-crud.js';
 export * from './schemas/digest.js';
 export * from './schemas/corrections.js';
+export * from './schemas/agent.js';

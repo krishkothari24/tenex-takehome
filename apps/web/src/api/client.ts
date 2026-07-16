@@ -1,4 +1,6 @@
 import type {
+  AgentChatRequest,
+  AgentStreamEvent,
   BucketsResponse,
   ClassifyStreamEvent,
   CreateBucketResponse,
@@ -64,6 +66,8 @@ export const api = {
   reclassifyStream: (signal: AbortSignal | null = null) => streamPost<ClassifyStreamEvent>('/api/reclassify', signal),
   getDigest: () => request<DigestResponse>('/api/digest'),
   digestStream: (signal: AbortSignal | null = null) => streamPost<DigestStreamEvent>('/api/digest', signal),
+  agentChatStream: (body: AgentChatRequest, signal: AbortSignal | null = null) =>
+    streamPost<AgentStreamEvent>('/api/agent/chat', signal, body),
   moveEmailBucket: (emailId: string, bucketId: string) =>
     request<MoveEmailBucketResponse>(`/api/emails/${encodeURIComponent(emailId)}/bucket`, {
       method: 'PATCH',
@@ -80,17 +84,27 @@ export const api = {
 };
 
 /**
- * `/api/classify`, `/api/reclassify`, and `/api/digest` are all mutating, side-effecting calls
- * (they persist rows and, for digest, spend real API budget), so they're consumed via `fetch()` +
- * a manual `ReadableStream` reader rather than `EventSource` — `EventSource` only supports GET and
- * can't express that. Generic over the event union so the frame-parsing logic isn't duplicated
- * across streams that share this shape but not their event types.
+ * `/api/classify`, `/api/reclassify`, `/api/digest`, and `/api/agent/chat` are all mutating,
+ * side-effecting calls (they persist rows and/or spend real API budget), so they're consumed via
+ * `fetch()` + a manual `ReadableStream` reader rather than `EventSource` — `EventSource` only
+ * supports GET and can't express that. Generic over the event union so the frame-parsing logic
+ * isn't duplicated across streams that share this shape but not their event types. `body`, if
+ * given, is JSON-encoded — only the agent chat stream needs one today (its message + history), the
+ * others take none.
  */
-async function* streamPost<T>(path: string, signal: AbortSignal | null): AsyncGenerator<T> {
-  const res = await fetch(path, { method: 'POST', credentials: 'include', signal });
+async function* streamPost<T>(path: string, signal: AbortSignal | null, body?: unknown): AsyncGenerator<T> {
+  const res = await fetch(path, {
+    method: 'POST',
+    credentials: 'include',
+    signal,
+    ...(body !== undefined
+      ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+      : {}),
+  });
   if (res.status === 401) throw new UnauthenticatedError();
   if (!res.ok || !res.body) {
-    throw new Error(`Request to ${path} failed with status ${res.status}`);
+    const errorBody = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(errorBody?.message ?? `Request to ${path} failed with status ${res.status}`);
   }
   yield* parseSSEFrames<T>(res);
 }

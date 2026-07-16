@@ -60,9 +60,14 @@ export function decideNextStep(message: Anthropic.Message): NextStep {
   return { type: 'unrecognized' };
 }
 
-interface ToolDispatchOutcome {
+export interface ToolDispatchOutcome {
   toolResultBlock: Anthropic.ToolResultBlockParam;
   logEntry: { name: string; input: unknown; resultSummary: string };
+  /** Set only for a successful draft_reply dispatch — the one tool result the UI renders as its
+   *  own distinct frame (see AgentTurnCallbacks.onToolResult), rather than only inside the final
+   *  reply text. Keeping "what a draft result looks like" here (where the typed DraftReplyResult
+   *  is already in scope) avoids the caller re-parsing resultSummary strings. */
+  uiEvent?: { type: 'draft'; threadId: string; draftText: string };
 }
 
 /**
@@ -107,6 +112,9 @@ async function dispatchToolCall(
           input,
           resultSummary: result.ok ? 'draft produced' : `error: ${result.error}`,
         },
+        ...(result.ok
+          ? { uiEvent: { type: 'draft' as const, threadId: input.thread_id, draftText: result.data.draftText } }
+          : {}),
       };
     }
 
@@ -145,9 +153,20 @@ export interface AgentTurnResult {
   hitIterationCap: boolean;
 }
 
+/** Optional progress hooks for a caller that wants to surface activity as it happens (9b's SSE
+ *  route) rather than only see the final result — purely additive, so callers that don't pass
+ *  these (agent-dev.ts, the existing tests) see no behavior change. */
+export interface AgentTurnCallbacks {
+  /** Fired right before a tool_use block is dispatched. */
+  onToolStart?: (toolName: string) => void;
+  /** Fired right after dispatch resolves — already-computed outcome, just relayed. */
+  onToolResult?: (outcome: ToolDispatchOutcome) => void;
+}
+
 const CAP_REACHED_REPLY = "I wasn't able to fully answer that within the allotted steps — could you narrow the request?";
 const COST_CEILING_REPLY = "I've done as much as I can within this turn's budget — could you ask again more narrowly?";
 const UNRECOGNIZED_REPLY = "I wasn't able to fully answer that — could you rephrase or narrow the request?";
+const ABORTED_REPLY = 'This turn was cancelled.';
 
 /**
  * The orchestrator: seeds `messages` with history + the new user message, then loops up to
@@ -156,12 +175,20 @@ const UNRECOGNIZED_REPLY = "I wasn't able to fully answer that — could you rep
  * ceiling) trips. This is a genuinely new pattern for the codebase — every other Anthropic call
  * site (classifier/batch.ts, digest/generate.ts) forces a single tool call for one-shot structured
  * extraction; this is model-driven and multi-turn.
+ *
+ * `signal`, if given, is forwarded to every `client.messages.create` call (the Anthropic SDK
+ * aborts an in-flight request when it fires) and also checked at the top of each iteration, so a
+ * client disconnect stops the turn before starting another billable call — unlike
+ * classifier/digest, a chat turn is never persisted, so nothing is gained by finishing a turn
+ * nobody is listening to.
  */
 export async function runAgentTurn(
   userId: string,
   history: Anthropic.MessageParam[],
   userMessage: string,
   logger: AgentLogger = consoleAgentLogger,
+  callbacks: AgentTurnCallbacks = {},
+  signal?: AbortSignal,
 ): Promise<AgentTurnResult> {
   const messages: Anthropic.MessageParam[] = [...history, { role: 'user', content: userMessage }];
   const toolCalls: AgentTurnResult['toolCalls'] = [];
@@ -178,6 +205,11 @@ export async function runAgentTurn(
   let spentUsd = 0;
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+    if (signal?.aborted) {
+      logger.info({}, 'agent turn stopped — client disconnected');
+      return { reply: ABORTED_REPLY, history: messages, toolCalls, hitIterationCap: false };
+    }
+
     if (spentUsd > ceiling) {
       logger.info({ spentUsd, ceiling }, 'agent turn stopped — cost ceiling reached');
       return { reply: COST_CEILING_REPLY, history: messages, toolCalls, hitIterationCap: true };
@@ -185,14 +217,17 @@ export async function runAgentTurn(
 
     let message: Anthropic.Message;
     try {
-      message = await client.messages.create({
-        model: AGENT_MODEL,
-        max_tokens: MAX_AGENT_OUTPUT_TOKENS,
-        system,
-        tools,
-        tool_choice: { type: 'auto' },
-        messages,
-      });
+      message = await client.messages.create(
+        {
+          model: AGENT_MODEL,
+          max_tokens: MAX_AGENT_OUTPUT_TOKENS,
+          system,
+          tools,
+          tool_choice: { type: 'auto' },
+          messages,
+        },
+        { signal },
+      );
     } catch (err) {
       if (isInsufficientCreditsError(err)) throw new InsufficientCreditsError();
       throw err;
@@ -218,6 +253,7 @@ export async function runAgentTurn(
 
     const resultBlocks: Anthropic.ToolResultBlockParam[] = [];
     for (const call of step.calls) {
+      callbacks.onToolStart?.(call.name);
       const outcome = await dispatchToolCall(call, userId, bucketNames);
       resultBlocks.push(outcome.toolResultBlock);
       toolCalls.push(outcome.logEntry);
@@ -225,6 +261,7 @@ export async function runAgentTurn(
         { tool: outcome.logEntry.name, input: outcome.logEntry.input, resultSummary: outcome.logEntry.resultSummary },
         'agent tool call',
       );
+      callbacks.onToolResult?.(outcome);
     }
     messages.push({ role: 'user', content: resultBlocks });
   }

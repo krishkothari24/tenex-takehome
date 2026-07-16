@@ -17,6 +17,7 @@ import analyticsRoutes from './routes/analytics.js';
 import digestRoutes from './routes/digest.js';
 import accountRoutes from './routes/account.js';
 import rulesRoutes from './routes/rules.js';
+import agentRoutes from './routes/agent.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +38,7 @@ async function main() {
   await fastify.register(digestRoutes);
   await fastify.register(accountRoutes);
   await fastify.register(rulesRoutes);
+  await fastify.register(agentRoutes);
 
   if (env.NODE_ENV === 'production') {
     await fastify.register(fastifyStatic, {
