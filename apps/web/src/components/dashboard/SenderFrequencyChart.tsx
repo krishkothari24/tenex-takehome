@@ -45,6 +45,10 @@ export function SenderFrequencyChart({ data }: { data: DashboardAnalytics['topSe
               type="category"
               dataKey="senderLabel"
               width={130}
+              // Recharts defaults `interval` to `'preserveEnd'`, which drops ticks it *estimates*
+              // will collide — with up to 10 senders in this fixed-height chart that skipped every
+              // other label. Force every sender to render regardless of that estimate.
+              interval={0}
               tick={<SenderAxisTick />}
               stroke={GRID_COLOR}
             />

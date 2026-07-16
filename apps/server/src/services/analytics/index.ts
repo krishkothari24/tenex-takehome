@@ -3,18 +3,13 @@ import { listBuckets } from '../../db/queries/buckets.js';
 import { listEmailsWithClassification } from '../../db/queries/classifications.js';
 import { findUserById } from '../../db/queries/users.js';
 import { extractDisplayName, extractEmailAddress } from '../email-address.js';
-import { computeTimeCost } from './time-cost.js';
 import { computeVipSenders } from './vip.js';
 
 const UNSORTED_LABEL = 'Unsorted';
 const TOP_SENDER_LIMIT = 10;
 
-const TIME_COST_ASSUMPTION_NOTE =
-  "Each email's reading/response time is estimated by the classifier from its actual subject and " +
-  "content when it's sorted — not a fixed per-bucket average. Still an estimate, not a measurement.";
-
 /**
- * Builds the dashboard's four tiles (build guide §6) from one join query. Pure DB reads, no
+ * Builds the dashboard's tiles (build guide §6) from one join query. Pure DB reads, no
  * external API calls — no rate limits/retries/cost ceiling needed here, unlike the classifier
  * path; the only realistic failure is a DB outage, which the route surfaces as a plain 500.
  */
@@ -25,10 +20,6 @@ export async function computeDashboardAnalytics(userId: string): Promise<Dashboa
     findUserById(userId),
   ]);
   const colorByBucketName = new Map(buckets.map((b) => [b.name, b.color]));
-
-  const timeCost = computeTimeCost(
-    rows.map((r) => ({ bucket: r.bucket ?? UNSORTED_LABEL, estimatedReadMinutes: r.estimatedReadMinutes })),
-  );
 
   // The "from a real person" half of the build guide's attention heuristic is delegated to the
   // classifier — DEFAULT_BUCKETS['Important'].description already grounds that judgment. This only
@@ -80,13 +71,6 @@ export async function computeDashboardAnalytics(userId: string): Promise<Dashboa
 
   return {
     totalEmails: rows.length,
-    timeCost: {
-      byBucket: timeCost.byBucket,
-      totalMinutes: timeCost.totalMinutes,
-      totalHours: timeCost.totalHours,
-      unestimatedCount: timeCost.unestimatedCount,
-      assumptionNote: TIME_COST_ASSUMPTION_NOTE,
-    },
     attention,
     volumeByBucket,
     topSenders,

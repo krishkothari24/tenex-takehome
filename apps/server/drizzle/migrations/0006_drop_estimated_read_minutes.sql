@@ -1,0 +1,1 @@
+ALTER TABLE "classification_results" DROP COLUMN "estimated_read_minutes";

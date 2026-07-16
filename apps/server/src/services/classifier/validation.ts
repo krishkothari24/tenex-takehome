@@ -35,9 +35,6 @@ export function classificationBatchSchema(bucketNames: string[]) {
       .union([bucketEnum, z.null()])
       .optional()
       .default(null),
-    // Value guard: bounds the model's per-email time estimate so one hallucinated outlier can't
-    // poison the dashboard's aggregate time-cost sum (same instinct as the truncate*() guards above).
-    estimatedReadMinutes: z.number().min(0).max(30),
     hasDeadline: z.boolean(),
     // Length guard mirrors justification's — a short grounded phrase, not a paragraph.
     deadlineText: z.string().trim().min(1).max(160).nullable(),

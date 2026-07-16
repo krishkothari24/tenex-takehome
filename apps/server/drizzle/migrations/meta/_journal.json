@@ -43,6 +43,13 @@
       "when": 1784144652942,
       "tag": "0005_manual_overrides_and_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784204161612,
+      "tag": "0006_drop_estimated_read_minutes",
+      "breakpoints": true
     }
   ]
 }

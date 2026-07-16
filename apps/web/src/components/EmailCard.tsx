@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { motion, useDragControls, useReducedMotion } from 'framer-motion';
 import * as Popover from '@radix-ui/react-popover';
 import type { Bucket, EmailWithClassification } from '@inbox-concierge/shared';
@@ -7,6 +8,9 @@ interface EmailCardProps {
   bucketColor: string | null;
   buckets: Bucket[];
   onMove: (emailId: string, bucketId: string) => void;
+  /** Fires when a drag gesture starts, so `BucketBoard` can temporarily stop clipping this card's
+   *  own column (see that column's `overflow-y-auto` doc comment) while the card is in flight. */
+  onDragStart: (emailId: string) => void;
   /** Fires on drag release with the pointer's viewport coordinates — `BucketBoard` resolves which
    *  column (if any) is under that point via `document.elementFromPoint` and calls `onMove` for a
    *  valid drop; a no-op elsewhere just leaves the classification untouched. */
@@ -33,14 +37,16 @@ interface EmailCardProps {
  * column's own vertical scroll or hijack normal clicks on the card's other icon-buttons; the
  * handle itself is `aria-hidden`/`tabIndex={-1}` since it has no keyboard equivalent.
  */
-export function EmailCard({ email, bucketColor, buckets, onMove, onDragEnd }: EmailCardProps) {
+export function EmailCard({ email, bucketColor, buckets, onMove, onDragStart, onDragEnd }: EmailCardProps) {
   const isUnclassified = email.status === 'unclassified';
   const isAmbiguous = email.isAmbiguous === true;
   const reduceMotion = useReducedMotion();
   const dragControls = useDragControls();
+  const cardRef = useRef<HTMLElement>(null);
 
   return (
     <motion.article
+      ref={cardRef}
       layout
       layoutId={email.emailId}
       initial={reduceMotion ? false : { opacity: 0, y: 8 }}
@@ -53,9 +59,18 @@ export function EmailCard({ email, bucketColor, buckets, onMove, onDragEnd }: Em
       dragSnapToOrigin
       dragElastic={0.12}
       whileDrag={{ scale: 1.03, zIndex: 30, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
+      onDragStart={() => onDragStart(email.emailId)}
       onDragEnd={(event) => {
         const point = event as PointerEvent;
-        if (typeof point.clientX === 'number') onDragEnd(email.emailId, point.clientX, point.clientY);
+        if (typeof point.clientX !== 'number') return;
+        // Exclude the dragged card itself from the drop-target hit test: at release it's still
+        // painted under the cursor (elevated by `whileDrag`'s zIndex), so without this
+        // `elementFromPoint` in BucketBoard would always resolve back to this card's own
+        // (source) column instead of whatever's actually beneath it.
+        const node = cardRef.current;
+        if (node) node.style.pointerEvents = 'none';
+        onDragEnd(email.emailId, point.clientX, point.clientY);
+        if (node) node.style.pointerEvents = '';
       }}
       className="rounded-lg border border-slate-800 bg-slate-900 p-3 shadow-sm"
     >

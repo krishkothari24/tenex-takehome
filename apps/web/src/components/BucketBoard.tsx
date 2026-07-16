@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { LayoutGroup, Reorder } from 'framer-motion';
+import { LayoutGroup, Reorder, useDragControls, type DragControls } from 'framer-motion';
 import type { Bucket, EmailWithClassification } from '@inbox-concierge/shared';
 import { EmailCard } from './EmailCard';
 
@@ -58,6 +58,10 @@ export function BucketBoard({ buckets, emails, onMoveEmail, onReorderBuckets, on
   const unsorted = visibleEmails.filter((e) => e.bucket === null);
   const noMatches = trimmedQuery !== '' && visibleEmails.length === 0;
 
+  // Which email (if any) is mid-drag — lets the source column temporarily stop clipping itself
+  // (see BucketColumn's list wrapper) so the card stays visible as it crosses into another column.
+  const [draggingEmailId, setDraggingEmailId] = useState<string | null>(null);
+
   function handleDragEnd() {
     onReorderBuckets(order.map((b) => b.id));
   }
@@ -70,6 +74,7 @@ export function BucketBoard({ buckets, emails, onMoveEmail, onReorderBuckets, on
   // "Unsorted" (there's no "unclassify" action), or back onto the email's current bucket, is a
   // silent no-op — the card's `dragSnapToOrigin` already handles the visual snap-back.
   function handleEmailDragEnd(emailId: string, clientX: number, clientY: number) {
+    setDraggingEmailId(null);
     const target = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>('[data-bucket-key]');
     const bucketKey = target?.dataset.bucketKey;
     if (!bucketKey || bucketKey === 'unsorted') return;
@@ -98,18 +103,20 @@ export function BucketBoard({ buckets, emails, onMoveEmail, onReorderBuckets, on
           <div className="flex items-start gap-4 overflow-x-auto pb-2">
             <Reorder.Group as="div" axis="x" values={order} onReorder={setOrder} className="flex items-start gap-4">
               {order.map((bucket) => (
-                <Reorder.Item key={bucket.id} as="div" value={bucket} onDragEnd={handleDragEnd} className="shrink-0">
-                  <BucketColumn
-                    bucket={bucket}
-                    name={bucket.name}
-                    color={bucket.color}
-                    emails={visibleEmails.filter((e) => e.bucket === bucket.name)}
-                    buckets={buckets}
-                    onMoveEmail={onMoveEmail}
-                    onDeleteBucket={onDeleteBucket}
-                    onEmailDragEnd={handleEmailDragEnd}
-                  />
-                </Reorder.Item>
+                <DraggableBucketColumn
+                  key={bucket.id}
+                  bucket={bucket}
+                  onColumnDragEnd={handleDragEnd}
+                  name={bucket.name}
+                  color={bucket.color}
+                  emails={visibleEmails.filter((e) => e.bucket === bucket.name)}
+                  buckets={buckets}
+                  onMoveEmail={onMoveEmail}
+                  onDeleteBucket={onDeleteBucket}
+                  draggingEmailId={draggingEmailId}
+                  onEmailDragStart={setDraggingEmailId}
+                  onEmailDragEnd={handleEmailDragEnd}
+                />
               ))}
             </Reorder.Group>
             {unsorted.length > 0 && (
@@ -122,6 +129,8 @@ export function BucketBoard({ buckets, emails, onMoveEmail, onReorderBuckets, on
                   buckets={buckets}
                   onMoveEmail={onMoveEmail}
                   onDeleteBucket={onDeleteBucket}
+                  draggingEmailId={draggingEmailId}
+                  onEmailDragStart={setDraggingEmailId}
                   onEmailDragEnd={handleEmailDragEnd}
                 />
               </div>
@@ -133,6 +142,56 @@ export function BucketBoard({ buckets, emails, onMoveEmail, onReorderBuckets, on
   );
 }
 
+interface BucketColumnContentProps {
+  name: string;
+  color: string | null;
+  emails: EmailWithClassification[];
+  buckets: Bucket[];
+  onMoveEmail: (emailId: string, bucketId: string) => void;
+  onDeleteBucket: (bucketId: string) => void;
+  draggingEmailId: string | null;
+  onEmailDragStart: (emailId: string) => void;
+  onEmailDragEnd: (emailId: string, clientX: number, clientY: number) => void;
+}
+
+/**
+ * Owns the per-column `dragControls` and wraps `BucketColumn` in a `Reorder.Item` with
+ * `dragListener={false}` — the column only starts its own (horizontal, whole-column) drag from
+ * the dedicated grip handle in its header, never from a bare pointerdown anywhere inside it.
+ * Without this, `Reorder.Item`'s default `dragListener` (true) means the *entire column box*
+ * listens for pointerdown, so grabbing an `EmailCard`'s own drag handle — a descendant DOM node —
+ * would arm the column's drag gesture too (`Reorder.Item`'s pan recognizer is a native listener
+ * on an ancestor node, so it fires before React's synthetic event system ever reaches this
+ * component's handlers, making `stopPropagation` in the child unreliable here). Scoping both
+ * drags to explicit handles sidesteps that ordering problem entirely instead of racing it.
+ *
+ * `layout="position"` (overriding `Reorder.Item`'s default `layout={true}`) keeps the FLIP
+ * animation to x/y position only — with full `layout`, collapsing a column (a plain width class
+ * swap) also had the ancestor `Reorder.Item` box try to animate *size*, so the column visually
+ * stayed at its old expanded width while its already-shrunk content (text `truncate`) rendered
+ * for the new width — the "expands then ellipses" glitch.
+ */
+function DraggableBucketColumn({
+  bucket,
+  onColumnDragEnd,
+  ...columnProps
+}: BucketColumnContentProps & { bucket: Bucket; onColumnDragEnd: () => void }) {
+  const dragControls = useDragControls();
+  return (
+    <Reorder.Item
+      as="div"
+      value={bucket}
+      dragListener={false}
+      dragControls={dragControls}
+      layout="position"
+      onDragEnd={onColumnDragEnd}
+      className="shrink-0"
+    >
+      <BucketColumn bucket={bucket} dragControls={dragControls} {...columnProps} />
+    </Reorder.Item>
+  );
+}
+
 function BucketColumn({
   bucket,
   name,
@@ -141,16 +200,14 @@ function BucketColumn({
   buckets,
   onMoveEmail,
   onDeleteBucket,
+  draggingEmailId,
+  onEmailDragStart,
   onEmailDragEnd,
-}: {
+  dragControls,
+}: BucketColumnContentProps & {
   bucket: Bucket | null;
-  name: string;
-  color: string | null;
-  emails: EmailWithClassification[];
-  buckets: Bucket[];
-  onMoveEmail: (emailId: string, bucketId: string) => void;
-  onDeleteBucket: (bucketId: string) => void;
-  onEmailDragEnd: (emailId: string, clientX: number, clientY: number) => void;
+  /** Only set for real buckets (via `DraggableBucketColumn`) — "Unsorted" isn't reorderable. */
+  dragControls?: DragControls;
 }) {
   // Component-local, not persisted — resets on reload by design; this is a screen-space control,
   // not a saved preference.
@@ -179,24 +236,44 @@ function BucketColumn({
   return (
     <section
       data-bucket-key={bucket ? bucket.id : 'unsorted'}
-      className={`flex shrink-0 flex-col gap-2 ${collapsed ? 'w-20' : 'w-72'}`}
+      className={`flex shrink-0 flex-col gap-2 transition-[width] duration-200 ease-out ${collapsed ? 'w-20' : 'w-72'}`}
     >
-      <header className="flex items-center justify-between gap-1 px-1">
-        <button
-          type="button"
-          onClick={() => setCollapsed((c) => !c)}
-          aria-expanded={!collapsed}
-          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${name}`}
-          title={collapsed ? name : undefined}
-          className="flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-sm font-semibold text-slate-200 hover:bg-slate-800/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
-        >
-          <span
-            className="h-2.5 w-2.5 shrink-0 rounded-full"
-            style={{ backgroundColor: color ?? '#64748B' }}
-            aria-hidden="true"
-          />
-          <span className="truncate">{name}</span>
-        </button>
+      <header className="flex min-w-0 items-center justify-between gap-1 px-1">
+        <div className="flex min-w-0 items-center gap-0.5">
+          {dragControls && (
+            <button
+              type="button"
+              onPointerDown={(e) => dragControls.start(e)}
+              aria-hidden="true"
+              tabIndex={-1}
+              className="shrink-0 cursor-grab touch-none rounded p-0.5 text-slate-700 hover:text-slate-500 active:cursor-grabbing"
+            >
+              <svg viewBox="0 0 16 16" width="10" height="14" fill="currentColor" aria-hidden="true">
+                <circle cx="5" cy="3" r="1.2" />
+                <circle cx="11" cy="3" r="1.2" />
+                <circle cx="5" cy="8" r="1.2" />
+                <circle cx="11" cy="8" r="1.2" />
+                <circle cx="5" cy="13" r="1.2" />
+                <circle cx="11" cy="13" r="1.2" />
+              </svg>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-expanded={!collapsed}
+            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${name}`}
+            title={collapsed ? name : undefined}
+            className="flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-sm font-semibold text-slate-200 hover:bg-slate-800/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: color ?? '#64748B' }}
+              aria-hidden="true"
+            />
+            <span className="min-w-0 truncate">{name}</span>
+          </button>
+        </div>
         <div className="flex shrink-0 items-center gap-1">
           <span className="text-xs text-slate-500">{emails.length}</span>
           {bucket && !bucket.isDefault && !collapsed && (
@@ -223,7 +300,11 @@ function BucketColumn({
         </div>
       </header>
       {!collapsed && (
-        <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto pr-1">
+        <div
+          className={`flex max-h-[70vh] flex-col gap-2 pr-1 ${
+            emails.some((e) => e.emailId === draggingEmailId) ? 'overflow-visible' : 'overflow-y-auto'
+          }`}
+        >
           {emails.map((email) => (
             <EmailCard
               key={email.emailId}
@@ -231,6 +312,7 @@ function BucketColumn({
               bucketColor={color}
               buckets={buckets}
               onMove={onMoveEmail}
+              onDragStart={onEmailDragStart}
               onDragEnd={onEmailDragEnd}
             />
           ))}

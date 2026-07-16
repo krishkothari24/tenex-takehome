@@ -1,29 +1,13 @@
 import { z } from 'zod';
 
-export const timeCostByBucketSchema = z.object({
-  bucket: z.string(),
-  emailCount: z.number().int().nonnegative(),
-  /** Average of the classifier's per-email estimates for this bucket — not a fixed constant. */
-  minutesPerEmail: z.number().nonnegative(),
-  totalMinutes: z.number().nonnegative(),
-});
-export type TimeCostByBucket = z.infer<typeof timeCostByBucketSchema>;
-
 /**
- * The dashboard's four tiles (build guide §6): time-cost, attention/unanswered, volume breakdown,
- * sender frequency. Both `timeCost` and `attention` carry an honest "unknown/unestimated" count
- * alongside their headline number — rows synced/classified before a relevant migration shipped
- * degrade to null rather than being silently counted as zero.
+ * The dashboard's tiles (build guide §6): attention/unanswered, volume breakdown, sender
+ * frequency. `attention` carries an honest "unknown reply status" count alongside its headline
+ * number — rows synced/classified before a relevant migration shipped degrade to null rather than
+ * being silently counted as zero.
  */
 export const dashboardAnalyticsSchema = z.object({
   totalEmails: z.number().int().nonnegative(),
-  timeCost: z.object({
-    byBucket: z.array(timeCostByBucketSchema),
-    totalMinutes: z.number().nonnegative(),
-    totalHours: z.number().nonnegative(),
-    unestimatedCount: z.number().int().nonnegative(),
-    assumptionNote: z.string(),
-  }),
   attention: z.object({
     importantTotal: z.number().int().nonnegative(),
     unansweredCount: z.number().int().nonnegative(),

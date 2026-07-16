@@ -80,12 +80,9 @@ export const classificationResults = pgTable(
     }),
     confidence: real('confidence'),
     justification: text('justification'),
-    // Model-estimated reading/response minutes for this specific email (build guide §6's
-    // time-cost dashboard tile) — null exactly when status is 'unclassified'.
-    estimatedReadMinutes: real('estimated_read_minutes'),
     // Deadline/urgency signal (build guide §6 stretch), extracted in the same batched call —
     // hasDeadline is null (not false) and deadlineText is null exactly when status is
-    // 'unclassified', mirroring estimatedReadMinutes' nullability convention.
+    // 'unclassified'.
     hasDeadline: boolean('has_deadline'),
     deadlineText: text('deadline_text'),
     // True when the user manually moved this email to a bucket (via PATCH /api/emails/:id/bucket)

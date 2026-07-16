@@ -113,7 +113,6 @@ export async function runClassifyStreamRoute({
               confidence: c.confidence,
               justification: c.justification,
               status: bucketId ? 'classified' : 'unclassified',
-              estimatedReadMinutes: c.estimatedReadMinutes,
               hasDeadline: c.hasDeadline,
               deadlineText: c.deadlineText,
             });
@@ -151,7 +150,6 @@ export async function runClassifyStreamRoute({
           : null,
         isAmbiguous: false,
         status: 'classified',
-        estimatedReadMinutes: e.estimatedReadMinutes,
         hasDeadline: e.hasDeadline,
         deadlineText: e.deadlineText,
       });

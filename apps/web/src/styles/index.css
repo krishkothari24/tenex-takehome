@@ -1,1 +1,11 @@
 @import 'tailwindcss';
+
+/* Tailwind's preflight leaves `html`/`body` background transparent, so anything below the
+   document's actual content height — trackpad overscroll rubber-banding, a mobile browser's
+   collapsing address bar, any viewport taller than the content — showed the browser's default
+   white canvas through the gap instead of the app's dark theme. Matching `bg-slate-950` here
+   closes that gap without touching layout. */
+html,
+body {
+  background-color: #020617;
+} 

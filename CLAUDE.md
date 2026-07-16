@@ -1,6 +1,6 @@
 # Inbox Concierge
 
-AI-classified Gmail inbox with a quantified-cost dashboard and live re-bucketing. Built for a job take-home — production quality is graded, not just the demo.
+AI-classified Gmail inbox with an attention/volume dashboard and live re-bucketing. Built for a job take-home — production quality is graded, not just the demo.
 
 Full spec, architecture, and phase-by-phase plan: **@docs/BUILD_GUIDE.md** — read the relevant phase section before starting work on it. Don't re-read the whole file every session; jump to the section that matters.
 

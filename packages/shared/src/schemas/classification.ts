@@ -38,12 +38,6 @@ export const emailClassificationSchema = z.object({
   isAmbiguous: z.boolean(),
   status: classificationStatusSchema,
   /**
-   * Minutes a busy professional would spend reading + responding to this specific email, as
-   * estimated by the classifier from its actual subject/snippet — not a fixed per-bucket average
-   * (see build guide §6's dashboard time-cost tile). Null exactly when `status` is 'unclassified'.
-   */
-  estimatedReadMinutes: z.number().min(0).max(30).nullable(),
-  /**
    * Whether the email mentions a date, deadline, or explicit time-sensitive ask — extracted from
    * the same batched call, not a separate pass (build guide §6 stretch: deadline/urgency
    * detection). `false`/`null` exactly when `status` is 'unclassified'.

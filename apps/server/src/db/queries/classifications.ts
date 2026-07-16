@@ -11,7 +11,6 @@ export interface UpsertClassificationInput {
   confidence: number | null;
   justification: string | null;
   status: ClassificationStatus;
-  estimatedReadMinutes: number | null;
   hasDeadline: boolean | null;
   deadlineText: string | null;
 }
@@ -27,7 +26,6 @@ export async function upsertClassification(input: UpsertClassificationInput): Pr
       confidence: input.confidence,
       justification: input.justification,
       status: input.status,
-      estimatedReadMinutes: input.estimatedReadMinutes,
       hasDeadline: input.hasDeadline,
       deadlineText: input.deadlineText,
       updatedAt: new Date(),
@@ -40,7 +38,6 @@ export async function upsertClassification(input: UpsertClassificationInput): Pr
         confidence: input.confidence,
         justification: input.justification,
         status: input.status,
-        estimatedReadMinutes: input.estimatedReadMinutes,
         hasDeadline: input.hasDeadline,
         deadlineText: input.deadlineText,
         updatedAt: new Date(),
@@ -58,8 +55,8 @@ export interface SetManualBucketInput {
  * matching email) — flags `isManualOverride` so the reclassify pipeline skips this row entirely
  * (see stream-route.ts) rather than letting the next full re-run silently clobber it. No model
  * reasoning behind a manual pick, so `justification`/`confidence`/`secondaryBucket` are cleared;
- * `estimatedReadMinutes`/`hasDeadline`/`deadlineText` are left untouched — those are still real
- * model-derived facts about the email's content, unrelated to which bucket a human chose.
+ * `hasDeadline`/`deadlineText` are left untouched — those are still real model-derived facts
+ * about the email's content, unrelated to which bucket a human chose.
  */
 export async function setManualBucket(input: SetManualBucketInput): Promise<void> {
   await db
@@ -108,7 +105,6 @@ export async function markEmailsUnclassified(emailIds: string[]): Promise<void> 
       confidence: null,
       justification: null,
       status: 'unclassified',
-      estimatedReadMinutes: null,
       hasDeadline: null,
       deadlineText: null,
     });
@@ -145,7 +141,7 @@ export async function listClassificationsForUser(userId: string) {
  * emails with no classification_results row at all — `GET /api/emails`'s "render from Postgres"
  * query, and how the frontend detects "some emails still need a classify run" on load. Also the
  * one join the analytics service needs (email + classification + bucket name), so it selects the
- * VIP-heuristic and time-cost columns too rather than duplicating this join elsewhere.
+ * VIP-heuristic columns too rather than duplicating this join elsewhere.
  */
 export async function listEmailsWithClassification(userId: string) {
   return db
@@ -162,7 +158,6 @@ export async function listEmailsWithClassification(userId: string) {
       confidence: classificationResults.confidence,
       justification: classificationResults.justification,
       status: classificationResults.status,
-      estimatedReadMinutes: classificationResults.estimatedReadMinutes,
       hasDeadline: classificationResults.hasDeadline,
       deadlineText: classificationResults.deadlineText,
     })
@@ -190,7 +185,6 @@ export async function getEmailWithClassification(emailId: string, userId: string
       confidence: classificationResults.confidence,
       justification: classificationResults.justification,
       status: classificationResults.status,
-      estimatedReadMinutes: classificationResults.estimatedReadMinutes,
       hasDeadline: classificationResults.hasDeadline,
       deadlineText: classificationResults.deadlineText,
     })

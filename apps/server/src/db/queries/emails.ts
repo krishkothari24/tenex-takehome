@@ -88,10 +88,10 @@ export async function listEmailIdsFromSender(userId: string, fromAddress: string
 
 /**
  * All of a user's emails, metadata + snippet only — the input shape the classifier expects.
- * Also carries `isManualOverride` and the existing deadline/read-time signals (left-joined, so
- * `null` for a never-classified email) — `runClassifyStreamRoute` uses these to split emails into
- * "never re-sent to Haiku" (manual override / sender rule) vs. the real batched-classify path,
- * without a second round-trip.
+ * Also carries `isManualOverride` and the existing deadline signal (left-joined, so `null` for a
+ * never-classified email) — `runClassifyStreamRoute` uses these to split emails into "never
+ * re-sent to Haiku" (manual override / sender rule) vs. the real batched-classify path, without a
+ * second round-trip.
  */
 export async function listEmailsForClassification(userId: string) {
   return db
@@ -101,7 +101,6 @@ export async function listEmailsForClassification(userId: string) {
       fromAddress: emails.fromAddress,
       snippet: emails.snippet,
       isManualOverride: classificationResults.isManualOverride,
-      estimatedReadMinutes: classificationResults.estimatedReadMinutes,
       hasDeadline: classificationResults.hasDeadline,
       deadlineText: classificationResults.deadlineText,
     })
