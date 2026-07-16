@@ -321,3 +321,19 @@ Narrowed the callback to `if (outcome.uiEvent?.type === 'draft') send(outcome.ui
 
 **Why it matters:**
 A one-line type widening (`uiEvent`'s union) had a call site three files away that assumed the old, narrower shape — exactly the class of bug strict typechecking across workspace boundaries is meant to catch before it becomes a runtime protocol mismatch between server and client.
+
+### [Phase 8, regression] — Bucket columns' flat `max-h-[70vh]` cap trapped email lists in a nested scrollbar — 2026-07-16
+**What Claude Code generated first:**
+Phase 8's `BucketBoard.tsx` capped each column's email list at `max-h-[70vh] overflow-y-auto`, sized against the *full* viewport height, to satisfy that phase's actual goal: a newly created bucket should land beside the others in the horizontal row, never wrap to a new row and push the page down.
+
+**What was wrong / the risk:**
+The header above the columns (title bar, view tabs, sync button, search input, create-bucket form, rule-suggestion banner, status line) grew across later phases (9a/9b added the chat tab, "Check for new emails" button, more status text). Once that header's real height plus a column's flat 70vh exceeded one screen, the outer page became scrollable (`min-h-screen` is a minimum, not a clip) — but each column's email list was still capped at the same fixed 70vh regardless of where it sat on the page. Scrolling the page no longer revealed more of a column's content; users had to separately scroll *inside* the column box to see the rest — a confusing nested-scroll trap the human reported as "content just capped" even though there was visibly more room on the page.
+
+**How it was caught:**
+Human report during manual use, initially attributed (reasonably) to the `<main className="min-h-screen">` wrapper. Investigated via `git log -p` blame on both `min-h-screen` (pre-existing since Phase 3, unrelated) and `max-h-[70vh]` (introduced in the actual Phase 8 commit, `908521c`) before proposing a fix; `AskUserQuestion` surfaced that the real Phase 8 intent was narrower than "the page must never scroll" — only new *buckets* must join the row, not new *content* height.
+
+**The fix:**
+Removed the per-column `max-h-[70vh]`/`overflow-y-auto` cap entirely in `BucketColumn` — columns now grow with their content and the whole page scrolls normally as one document, single scrollbar. That also made the `draggingEmailId`-driven `overflow-visible`/`overflow-y-auto` toggle (and the `onDragStart`/`onEmailDragStart` plumbing that fed it, spanning `BucketBoard.tsx` and `EmailCard.tsx`) fully dead code — the only thing that ever read `draggingEmailId` was the now-removed ternary — so removed that plumbing too rather than leave a write-only state variable behind. Verified with a temporary Playwright harness rendering `BucketBoard` directly with 25 fixture emails in one bucket (bypassing Google OAuth): before the fix the column stayed fixed at 70vh with its own scrollbar; after, the column's real height matched its content (2774px in a 700px-viewport test) and scrolling the page revealed the rest of the list, with zero console errors. Harness files were temporary and removed afterward.
+
+**Why it matters:**
+The horizontal-row constraint from Phase 8 was correct and is untouched; the vertical cap bolted onto the same commit was solving a problem — "never let the page scroll" — that was never actually the requirement, and it silently broke as soon as unrelated later phases grew the header. A fix's blast radius is worth checking for now-dead code (here, an entire drag-tracking mechanism) rather than just patching the one line that was reported broken.
