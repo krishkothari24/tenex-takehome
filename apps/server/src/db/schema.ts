@@ -41,6 +41,10 @@ export const emails = pgTable(
     // Powers the dashboard's "unanswered VIP" attention heuristic (build guide §6).
     messageCount: integer('message_count'),
     hasReplyFromUser: boolean('has_reply_from_user'),
+    // Nullable for the same reason as messageCount/hasReplyFromUser above — backfilled on the next
+    // sync. Derived from Gmail's `UNREAD` label (any message in the thread), not a custom heuristic.
+    // Powers the agent's search_emails is_unread filter (docs/AGENTIC_CHAT_PLAN.md phase 9a).
+    isUnread: boolean('is_unread'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -289,3 +289,19 @@ Re-submitted the same CSS fix, this time with the reasoning made explicit in the
 
 **Why it matters:**
 A confident-sounding human rejection ("you need to understand the deeper idea") isn't automatically correct — re-verifying against the actual code and, when that still disagreed with the human's mental model, asking targeted runtime questions rather than either blindly complying or blindly re-asserting, resolved the disagreement with evidence instead of a second guess. The drag-and-drop bug was verified end-to-end via a temporary Playwright harness (real `BucketBoard`/`EmailCard` components, real pointer-drag simulation, real `elementFromPoint` hit-testing in a headless browser) rather than by reading the fix and assuming it worked, since the original bug itself was invisible to static review and only surfaced under an actual drag gesture.
+
+### [Phase 9a, plan mode] — `docs/AGENTIC_CHAT_PLAN.md`'s `search_emails` spec assumed an unread field that doesn't exist — 2026-07-16
+**What Claude Code generated first:**
+`docs/AGENTIC_CHAT_PLAN.md` (written in an earlier session) specified `search_emails`'s filters as including `unread_only`, alongside keyword/bucket/sender/limit.
+
+**What was wrong / the risk:**
+The `emails` table has no read/unread field at all, and never had one — Gmail label sync was never built; only `messageCount`/`hasReplyFromUser` exist as an "unanswered" heuristic, which is a different signal (whether the user replied, not whether the thread is unread). Building `search_emails` to spec as written would have meant either silently no-op'ing the filter or faking it with the wrong signal.
+
+**How it was caught:**
+Manual review while planning Phase 9a — cross-checking the plan doc's tool spec against the actual Drizzle schema (`apps/server/src/db/schema.ts`) before writing any code, rather than trusting the plan doc as ground truth.
+
+**The fix:**
+Asked the human directly; they chose to add real Gmail unread sync rather than fake or drop the filter. Added a genuine `isUnread` boolean column (nullable, backfilled on next sync, same shape as the existing `messageCount`/`hasReplyFromUser` precedent), computed from Gmail's `UNREAD` label (`gmail-client.ts`, zero extra API calls since `labelIds` is already returned under `format: 'metadata'`), wired through `upsertEmail` and the `/api/inbox/sync` route, migrated via `drizzle-kit generate`/`migrate`, and only then built `search_emails`'s `is_unread` filter against the real column.
+
+**Why it matters:**
+A planning document is not automatically ground truth about the current codebase, even when it was itself the product of prior research — the same "read it, don't guess it" discipline that applies to reasoning about existing code (see the Phase 4 FK-cascade entry above) applies just as much to a spec document proposing new code. Verified against real data end-to-end afterward: re-synced the live Gmail account, confirmed a realistic unread/read split (57 unread / 143 read of 200), and exercised the filter through a live `search_emails` call ("Do I have any unread emails from Palantir?" correctly returned only the 4 real unread Palantir threads).

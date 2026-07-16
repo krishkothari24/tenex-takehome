@@ -13,6 +13,7 @@ export interface UpsertEmailInput {
   rawHeaders?: Record<string, string>;
   messageCount: number | null;
   hasReplyFromUser: boolean | null;
+  isUnread: boolean | null;
 }
 
 /**
@@ -34,6 +35,7 @@ export async function upsertEmail(input: UpsertEmailInput) {
       rawHeaders: input.rawHeaders ?? null,
       messageCount: input.messageCount,
       hasReplyFromUser: input.hasReplyFromUser,
+      isUnread: input.isUnread,
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -47,6 +49,7 @@ export async function upsertEmail(input: UpsertEmailInput) {
         rawHeaders: input.rawHeaders ?? null,
         messageCount: input.messageCount,
         hasReplyFromUser: input.hasReplyFromUser,
+        isUnread: input.isUnread,
         updatedAt: new Date(),
       },
     });
@@ -73,6 +76,19 @@ export async function findEmailForUser(emailId: string, userId: string) {
     .select({ id: emails.id, fromAddress: emails.fromAddress })
     .from(emails)
     .where(and(eq(emails.id, emailId), eq(emails.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Ownership check keyed on Gmail's thread id rather than the row's uuid — draft_reply's tool
+ *  input is a thread_id (as surfaced by search_emails), never an internal id. Null if the thread
+ *  doesn't exist or doesn't belong to this user (never trust a model-supplied thread_id without
+ *  this — same rationale as findEmailForUser above). */
+export async function findEmailByThreadForUser(gmailThreadId: string, userId: string) {
+  const [row] = await db
+    .select({ subject: emails.subject, fromAddress: emails.fromAddress, snippet: emails.snippet })
+    .from(emails)
+    .where(and(eq(emails.gmailThreadId, gmailThreadId), eq(emails.userId, userId)))
     .limit(1);
   return row ?? null;
 }

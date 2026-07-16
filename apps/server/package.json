@@ -12,6 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "classify:dev": "tsx src/scripts/classify-dev.ts",
+    "agent:dev": "tsx src/scripts/agent-dev.ts",
     "eval": "tsx src/eval/run-eval.ts"
   },
   "dependencies": {

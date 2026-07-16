@@ -1,0 +1,1 @@
+ALTER TABLE "emails" ADD COLUMN "is_unread" boolean;

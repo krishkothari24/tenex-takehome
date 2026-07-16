@@ -77,6 +77,11 @@ export interface FetchedThread {
    *  "unanswered VIP" heuristic. Computed from data `threads.get` already returns, zero extra calls. */
   messageCount: number;
   hasReplyFromUser: boolean;
+  /** True if any message in the thread still carries Gmail's `UNREAD` label — matches Gmail's own
+   *  inbox convention of bolding a thread when any message in it is unread. `labelIds` is a
+   *  top-level message field Gmail returns even under `format: 'metadata'` (only `payload` fields
+   *  are restricted by that format), so this is zero extra API calls too. */
+  isUnread: boolean;
 }
 
 export interface FetchThreadsResult {
@@ -153,6 +158,7 @@ export async function fetchRecentThreadsMetadata(user: UserTokenRecord): Promise
                 const from = decodeHeader(m.payload?.headers, 'From');
                 return extractEmailAddress(from)?.toLowerCase() === userEmailLower;
               });
+              const isUnread = (data.messages ?? []).some((m) => m.labelIds?.includes('UNREAD'));
 
               return {
                 gmailThreadId: threadId,
@@ -167,6 +173,7 @@ export async function fetchRecentThreadsMetadata(user: UserTokenRecord): Promise
                     : null,
                 messageCount,
                 hasReplyFromUser,
+                isUnread,
               } satisfies FetchedThread;
             }),
           {
