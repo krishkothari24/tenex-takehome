@@ -57,7 +57,8 @@ export default async function inboxRoutes(fastify: FastifyInstance) {
       if (err instanceof GmailReauthRequiredError) {
         return reply.code(401).send({ error: 'REAUTH_REQUIRED', message: err.message });
       }
-      request.log.error({ err }, 'Inbox sync failed');
+      const message = err instanceof Error ? err.message : String(err);
+      request.log.error({ err }, `Inbox sync failed: ${message}`);
       reply.code(502).send({ error: 'GMAIL_SYNC_FAILED', message: 'Could not reach Gmail — please try again.' });
     }
   });
