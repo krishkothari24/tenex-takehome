@@ -8,7 +8,7 @@ import type {
   SenderRuleSuggestion,
 } from '@inbox-concierge/shared';
 import { useSession } from './hooks/useSession';
-import { api } from './api/client';
+import { api, UnauthenticatedError } from './api/client';
 import { useClassifyStream } from './hooks/useClassifyStream';
 import { useDigestStream } from './hooks/useDigestStream';
 import { useAgentChatStream } from './hooks/useAgentChatStream';
@@ -268,6 +268,13 @@ export default function App() {
       await api.syncInbox();
       await loadBoard();
     } catch (err) {
+      // A revoked/expired/scope-insufficient Google grant surfaces here as 401 — retrying the
+      // same sync forever can't fix it, so bounce straight back to the sign-in screen instead of
+      // leaving the user stuck on this gate with no way to re-auth.
+      if (err instanceof UnauthenticatedError) {
+        await signOut();
+        return;
+      }
       setErrorMessage(err instanceof Error ? err.message : 'Sync failed');
       setPhase('sync-error');
     }
@@ -289,6 +296,10 @@ export default function App() {
       const failedNote = res.failed.length > 0 ? ` (${res.failed.length} couldn't be read)` : '';
       setSyncMessage(`Checked your inbox — ${res.count} thread${res.count === 1 ? '' : 's'} synced${failedNote}.`);
     } catch (err) {
+      if (err instanceof UnauthenticatedError) {
+        await signOut();
+        return;
+      }
       setErrorMessage(err instanceof Error ? err.message : 'Could not check for new emails.');
     } finally {
       setIsSyncing(false);
@@ -343,6 +354,14 @@ export default function App() {
           {phase === 'syncing' ? 'Reading your last 200 threads…' : 'Sync my inbox'}
         </button>
         {phase === 'sync-error' && errorMessage && <p className="mt-3 text-red-400">{errorMessage}</p>}
+        {phase === 'sync-error' && (
+          <button
+            onClick={() => void signOut()}
+            className="mt-2 rounded text-sm text-slate-400 underline hover:text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+          >
+            Sign out
+          </button>
+        )}
       </Centered>
     );
   }
