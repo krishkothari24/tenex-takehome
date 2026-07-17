@@ -58,10 +58,6 @@ export function BucketBoard({ buckets, emails, onMoveEmail, onReorderBuckets, on
   const unsorted = visibleEmails.filter((e) => e.bucket === null);
   const noMatches = trimmedQuery !== '' && visibleEmails.length === 0;
 
-  // Which email (if any) is mid-drag — lets the source column temporarily stop clipping itself
-  // (see BucketColumn's list wrapper) so the card stays visible as it crosses into another column.
-  const [draggingEmailId, setDraggingEmailId] = useState<string | null>(null);
-
   function handleDragEnd() {
     onReorderBuckets(order.map((b) => b.id));
   }
@@ -74,7 +70,6 @@ export function BucketBoard({ buckets, emails, onMoveEmail, onReorderBuckets, on
   // "Unsorted" (there's no "unclassify" action), or back onto the email's current bucket, is a
   // silent no-op — the card's `dragSnapToOrigin` already handles the visual snap-back.
   function handleEmailDragEnd(emailId: string, clientX: number, clientY: number) {
-    setDraggingEmailId(null);
     const target = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>('[data-bucket-key]');
     const bucketKey = target?.dataset.bucketKey;
     if (!bucketKey || bucketKey === 'unsorted') return;
@@ -113,8 +108,6 @@ export function BucketBoard({ buckets, emails, onMoveEmail, onReorderBuckets, on
                   buckets={buckets}
                   onMoveEmail={onMoveEmail}
                   onDeleteBucket={onDeleteBucket}
-                  draggingEmailId={draggingEmailId}
-                  onEmailDragStart={setDraggingEmailId}
                   onEmailDragEnd={handleEmailDragEnd}
                 />
               ))}
@@ -129,8 +122,6 @@ export function BucketBoard({ buckets, emails, onMoveEmail, onReorderBuckets, on
                   buckets={buckets}
                   onMoveEmail={onMoveEmail}
                   onDeleteBucket={onDeleteBucket}
-                  draggingEmailId={draggingEmailId}
-                  onEmailDragStart={setDraggingEmailId}
                   onEmailDragEnd={handleEmailDragEnd}
                 />
               </div>
@@ -149,8 +140,6 @@ interface BucketColumnContentProps {
   buckets: Bucket[];
   onMoveEmail: (emailId: string, bucketId: string) => void;
   onDeleteBucket: (bucketId: string) => void;
-  draggingEmailId: string | null;
-  onEmailDragStart: (emailId: string) => void;
   onEmailDragEnd: (emailId: string, clientX: number, clientY: number) => void;
 }
 
@@ -200,8 +189,6 @@ function BucketColumn({
   buckets,
   onMoveEmail,
   onDeleteBucket,
-  draggingEmailId,
-  onEmailDragStart,
   onEmailDragEnd,
   dragControls,
 }: BucketColumnContentProps & {
@@ -300,11 +287,7 @@ function BucketColumn({
         </div>
       </header>
       {!collapsed && (
-        <div
-          className={`flex max-h-[70vh] flex-col gap-2 pr-1 ${
-            emails.some((e) => e.emailId === draggingEmailId) ? 'overflow-visible' : 'overflow-y-auto'
-          }`}
-        >
+        <div className="flex flex-col gap-2 pr-1">
           {emails.map((email) => (
             <EmailCard
               key={email.emailId}
@@ -312,7 +295,6 @@ function BucketColumn({
               bucketColor={color}
               buckets={buckets}
               onMove={onMoveEmail}
-              onDragStart={onEmailDragStart}
               onDragEnd={onEmailDragEnd}
             />
           ))}

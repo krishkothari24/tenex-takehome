@@ -8,9 +8,6 @@ interface EmailCardProps {
   bucketColor: string | null;
   buckets: Bucket[];
   onMove: (emailId: string, bucketId: string) => void;
-  /** Fires when a drag gesture starts, so `BucketBoard` can temporarily stop clipping this card's
-   *  own column (see that column's `overflow-y-auto` doc comment) while the card is in flight. */
-  onDragStart: (emailId: string) => void;
   /** Fires on drag release with the pointer's viewport coordinates — `BucketBoard` resolves which
    *  column (if any) is under that point via `document.elementFromPoint` and calls `onMove` for a
    *  valid drop; a no-op elsewhere just leaves the classification untouched. */
@@ -34,10 +31,10 @@ interface EmailCardProps {
  * screen-reader users, so it stays even though drag-and-drop (below) now also exists as a faster
  * mouse-only alternative. Drag is deliberately gated to a dedicated grip handle
  * (`dragListener={false}` + `useDragControls`) rather than the whole card, so it can't fight the
- * column's own vertical scroll or hijack normal clicks on the card's other icon-buttons; the
+ * page's vertical scroll or hijack normal clicks on the card's other icon-buttons; the
  * handle itself is `aria-hidden`/`tabIndex={-1}` since it has no keyboard equivalent.
  */
-export function EmailCard({ email, bucketColor, buckets, onMove, onDragStart, onDragEnd }: EmailCardProps) {
+export function EmailCard({ email, bucketColor, buckets, onMove, onDragEnd }: EmailCardProps) {
   const isUnclassified = email.status === 'unclassified';
   const isAmbiguous = email.isAmbiguous === true;
   const reduceMotion = useReducedMotion();
@@ -59,7 +56,6 @@ export function EmailCard({ email, bucketColor, buckets, onMove, onDragStart, on
       dragSnapToOrigin
       dragElastic={0.12}
       whileDrag={{ scale: 1.03, zIndex: 30, boxShadow: '0 8px 24px rgba(0,0,0,0.35)' }}
-      onDragStart={() => onDragStart(email.emailId)}
       onDragEnd={(event) => {
         const point = event as PointerEvent;
         if (typeof point.clientX !== 'number') return;
