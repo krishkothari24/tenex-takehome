@@ -54,6 +54,13 @@ test('rejects an empty headline', () => {
   );
 });
 
+test('rejects a headline over 200 characters', () => {
+  const schema = digestToolOutputSchema(VALID_IDS);
+  assert.throws(() =>
+    schema.parse({ headline: 'x'.repeat(201), actionItems: [], fyiCount: 0 }),
+  );
+});
+
 test('rejects draftReply/urgency inconsistency — never persist a mismatched pair', () => {
   const schema = digestToolOutputSchema(VALID_IDS);
   assert.throws(() =>

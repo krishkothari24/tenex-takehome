@@ -223,7 +223,7 @@ function BucketColumn({
   return (
     <section
       data-bucket-key={bucket ? bucket.id : 'unsorted'}
-      className={`flex shrink-0 flex-col gap-2 transition-[width] duration-200 ease-out ${collapsed ? 'w-20' : 'w-72'}`}
+      className={`flex shrink-0 flex-col gap-2 ${collapsed ? 'w-fit max-w-40' : 'w-72'}`}
     >
       <header className="flex min-w-0 items-center justify-between gap-1 px-1">
         <div className="flex min-w-0 items-center gap-0.5">

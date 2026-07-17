@@ -15,7 +15,12 @@ export const SONNET_PRICING = { inputPerMTok: 2, outputPerMTok: 10 } as const;
 // of the inbox) and keeps the single Sonnet call small and cheap.
 export const MAX_DIGEST_INPUT_EMAILS = 40;
 
-export const MAX_DIGEST_OUTPUT_TOKENS = 2048;
+// 2048 was too tight: a shortlist with several "high" urgency items (each needing a title + why +
+// a 2-4 sentence draftReply, up to ~900 chars of JSON apiece) can legitimately need more room than
+// that, and running out mid-call truncates the tool call before `actionItems`/`fyiCount` are even
+// started — a validation failure the corrective retry can't reason about without stop_reason
+// handling (see generate.ts). Doubled with headroom to spare under the cost ceiling.
+export const MAX_DIGEST_OUTPUT_TOKENS = 4096;
 
 // Pre-flight worst-case cost ceiling (USD). A well-formed digest call costs a few cents; this
 // exists to catch a genuine anomaly before any API call, same instinct as the classifier's ceiling.
