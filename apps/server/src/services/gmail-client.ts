@@ -29,7 +29,16 @@ interface UserTokenRecord {
 function isAuthError(err: unknown): boolean {
   const code = (err as { code?: number | string; response?: { status?: number } })?.code;
   const status = (err as { response?: { status?: number } })?.response?.status;
-  return code === 401 || status === 401 || code === 'invalid_grant';
+  if (code === 401 || status === 401 || code === 'invalid_grant') return true;
+
+  // Google grants sensitive scopes (like gmail.readonly) as individually toggleable consent
+  // checkboxes — a user can approve sign-in while leaving Gmail unchecked, which succeeds token
+  // exchange but yields a token missing the scope. Surfaces only once the API is actually called,
+  // as a 403 rather than 401, and the fix is the same as any other stale-grant case: re-consent.
+  const reason = (
+    err as { response?: { data?: { error?: { errors?: Array<{ reason?: string }> } } } }
+  )?.response?.data?.error?.errors?.[0]?.reason;
+  return status === 403 && reason === 'insufficientPermissions';
 }
 
 function isRateLimitError(err: unknown): boolean {

@@ -385,3 +385,19 @@ Folded `err.message` into the log line in `inbox.ts` (`request.log.error({ err }
 
 **Why it matters:**
 A fix scoped to "the one route the human happened to hit" instead of "the pattern" leaves the same landmine in every other catch block — this codebase now has at least two routes with broad try/catch-and-log-generic-message handlers around external calls (Gmail sync, OAuth callback); both needed the same treatment, and any new one should get it from the start.
+
+### [Deploy] — Root cause of the Gmail 502: token missing gmail.readonly scope, not treated as reauth — 2026-07-17
+**What Claude Code generated first:**
+`isAuthError()` in `gmail-client.ts` only classified `401`/`invalid_grant` responses as "needs re-auth"; anything else (including a `403`) fell through to the sync route's generic catch-all and returned an opaque "Could not reach Gmail" 502.
+
+**What was wrong / the risk:**
+With the logging fix deployed (previous entry), the real error was visible: `GaxiosError 403 — Request had insufficient authentication scopes` / `reason: insufficientPermissions` on `gmail.users.threads.list`. Google presents sensitive scopes like `gmail.readonly` as an individually-toggleable checkbox on the consent screen — a user can complete sign-in while leaving that box unchecked, which still succeeds at token exchange (an access token comes back fine) but the token silently lacks the scope. The failure only surfaces the first time the app actually calls the Gmail API, as a 403, not at OAuth time and not as a 401 — so `isAuthError()`'s narrow check missed it entirely and users hit a dead-end generic error with no path back to reconnecting.
+
+**How it was caught:**
+Deployed the log-message fix from the prior entry, asked the human to retry the sync, then read the real error via `railway logs --json` (the Railway CLI directly, since the `mcp__railway__` MCP connector's session had separately expired mid-session and needed the CLI as a fallback).
+
+**The fix:**
+Extended `isAuthError()` to also treat `status === 403` with `response.data.error.errors[0].reason === 'insufficientPermissions'` as an auth error, routing it through the existing `GmailReauthRequiredError` → 401 `REAUTH_REQUIRED` → frontend `UnauthenticatedError` → reconnect-flow path instead of the generic 502. Google's `prompt: 'consent'` (already set in `buildConsentUrl`) re-shows the full consent screen on the next attempt, giving the user another chance to check the Gmail box.
+
+**Why it matters:**
+A scope-restricted OAuth app (this one deliberately requests `gmail.readonly` only) will hit this exact case in production the first time a real, non-test-user human skims the consent screen — it's not an edge case, it's the default UX for a scope Google treats as sensitive. Classifying "needs re-auth" by status code alone (401 vs. everything else) missed the most likely real-world way this specific integration fails.
