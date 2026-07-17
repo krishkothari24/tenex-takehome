@@ -354,14 +354,12 @@ export default function App() {
           {phase === 'syncing' ? 'Reading your last 200 threads…' : 'Sync my inbox'}
         </button>
         {phase === 'sync-error' && errorMessage && <p className="mt-3 text-red-400">{errorMessage}</p>}
-        {phase === 'sync-error' && (
-          <button
-            onClick={() => void signOut()}
-            className="mt-2 rounded text-sm text-slate-400 underline hover:text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
-          >
-            Sign out
-          </button>
-        )}
+        <button
+          onClick={() => void signOut()}
+          className="mt-2 rounded text-sm text-slate-400 underline hover:text-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+        >
+          Sign out
+        </button>
       </Centered>
     );
   }
