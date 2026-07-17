@@ -51,7 +51,8 @@ export default async function authRoutes(fastify: FastifyInstance) {
         setSessionValue(request, 'userId', user.id);
         reply.redirect(env.FRONTEND_URL);
       } catch (err) {
-        request.log.error({ err }, 'Google OAuth callback failed');
+        const message = err instanceof Error ? err.message : String(err);
+        request.log.error({ err }, `Google OAuth callback failed: ${message}`);
         reply.redirect(`${env.FRONTEND_URL}/?auth_error=failed`);
       }
     },

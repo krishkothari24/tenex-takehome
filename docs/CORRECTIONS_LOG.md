@@ -353,3 +353,19 @@ Deleted the redundant `@inbox-concierge/web` service (confirmed via user action 
 
 **Why it matters:**
 "The CLI/API said the mutation committed" was not sufficient evidence that it actually took effect — the only real verification was triggering an actual fresh deploy and reading what command it ran, the same "verify by exercising it, not by reading the success message" discipline as the Phase 2 `--confirm` flag-swallowing entry. Also a reminder that a platform's own auto-detection is a guess, not ground truth about the app's real architecture — the code itself (the static-file serving + same-origin fetch calls) was the actual source of truth for "how many services does this need," not what Railway inferred from seeing two `package.json` files.
+
+### [Deploy] — Production sign-in failed (`?auth_error=failed`); `railway.json`'s `startCommand` never ran migrations — 2026-07-17
+**What Claude Code generated first:**
+The `railway.json` committed in the prior deploy entry set `deploy.startCommand` to `npm run start -w apps/server` only. No build step, start step, or Railway release phase ever ran `db:migrate` against the production Postgres instance.
+
+**What was wrong / the risk:**
+The human reported `/?auth_error=failed` on every real sign-in attempt (after separately hitting, and resolving, an unrelated Google "unverified app" 403 by adding the test-user account). The `/auth/google/callback` route's catch-all `catch (err) { request.log.error({ err }, 'Google OAuth callback failed'); ... }` only logged `err` as a structured Pino field, and Railway's log viewer (via the `mcp__railway__get_logs` tool) only surfaces the top-level `msg` string — `search` queries for `relation`, `invalid_grant`, `invalid_client`, etc. all returned zero hits even though the two real failures were confirmed in the logs by timestamp/message match. So the most likely root cause (production `users` table never migrated, since nothing in the deploy pipeline ever ran `drizzle-kit migrate`) could not be directly confirmed from logs, and a direct `psql` check against the production DB was blocked by the permission system.
+
+**How it was caught:**
+Human report of the live symptom, cross-referenced against `railway.json` (no migrate step anywhere in build/start) and `apps/server/package.json` (`db:migrate` script exists but is never invoked outside local dev).
+
+**The fix:**
+Changed `railway.json`'s `deploy.startCommand` to `npm run db:migrate -w apps/server && npm run start -w apps/server` (idempotent — drizzle-kit tracks applied migrations, safe on every deploy). Also changed the callback's catch block to fold `err.message` into the log line itself (`Google OAuth callback failed: ${message}`) so the next failure is diagnosable through the same log tool that couldn't see structured fields.
+
+**Why it matters:**
+A deploy pipeline that builds and starts the app but never migrates its database will pass every health check and still be completely broken for any code path that touches a table added after the first migration — exactly the kind of gap that's invisible until a real user hits it in production. Also a concrete case where the logging shape itself (structured-only, no plain-text summary) blocked diagnosis; structured fields are only useful if the tooling reading them actually surfaces them.
