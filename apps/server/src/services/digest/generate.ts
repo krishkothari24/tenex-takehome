@@ -82,7 +82,7 @@ export async function generateDigest(candidates: DigestCandidateEmail[]): Promis
     const userMessage =
       attempt === 0
         ? baseUserMessage
-        : `${baseUserMessage}\n\nYour previous attempt was rejected (${lastError}). Every emailId must be exactly one of the ids listed above.`;
+        : `${baseUserMessage}\n\nYour previous attempt was rejected: ${lastError}\nFix that and record the digest again. Every emailId must still be exactly one of the ids listed above.`;
 
     let message: Anthropic.Message;
     try {
@@ -98,6 +98,15 @@ export async function generateDigest(candidates: DigestCandidateEmail[]): Promis
       // Not retryable and won't resolve on the corrective-retry path below — fail immediately.
       if (isInsufficientCreditsError(err)) throw new InsufficientCreditsError();
       throw err;
+    }
+
+    // A response cut off mid-tool-call fails validation with a confusing "field X is missing"
+    // error that doesn't tell the model what actually went wrong (it ran out of output budget,
+    // not that it forgot a field) — surface the real cause so the retry can act on it instead.
+    if (message.stop_reason === 'max_tokens') {
+      lastError =
+        'the response was cut off because it hit the output token limit before the tool call finished. Write fewer action items and/or shorter `why`/`draftReply` text so the full digest fits.';
+      continue;
     }
 
     try {

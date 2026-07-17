@@ -215,11 +215,20 @@ export default function App() {
   // shape GET /api/emails returns) and refetches rule suggestions, since this correction might be
   // the one that crosses the "always do this?" threshold for its sender.
   async function handleMoveEmail(emailId: string, bucketId: string) {
+    const targetBucket = buckets.find((b) => b.id === bucketId);
+    setErrorMessage(null);
+    const previousEmails = emails;
+    if (targetBucket) {
+      setEmails((prev) =>
+        prev.map((e) => (e.emailId === emailId ? { ...e, bucket: targetBucket.name } : e)),
+      );
+    }
     try {
       const { email } = await api.moveEmailBucket(emailId, bucketId);
       setEmails((prev) => prev.map((e) => (e.emailId === emailId ? email : e)));
       void loadRuleSuggestions();
     } catch (err) {
+      setEmails(previousEmails);
       setErrorMessage(err instanceof Error ? err.message : 'Could not move that email.');
     }
   }
@@ -406,6 +415,18 @@ export default function App() {
         </div>
 
         <div aria-live="polite" role="status" className="space-y-1">
+          {errorMessage && (
+            <p className="flex items-center gap-2 text-sm text-red-400">
+              <span>{errorMessage}</span>
+              <button
+                type="button"
+                onClick={() => setErrorMessage(null)}
+                className="text-red-300 underline hover:text-red-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-300"
+              >
+                Dismiss
+              </button>
+            </p>
+          )}
           {syncMessage && !isSyncing && <p className="text-sm text-slate-400">{syncMessage}</p>}
           {classify.status === 'running' && (
             <p className="text-sm text-slate-400">

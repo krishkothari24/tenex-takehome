@@ -129,10 +129,12 @@ export async function runAgentChatStreamRoute({ request, reply, userId, body }: 
   }
 }
 
+/** Never forward `err.message` verbatim for unclassified errors — a ZodError's `.message` is the
+ *  raw JSON array of validation issues (see docs/CORRECTIONS_LOG.md), and other internal errors
+ *  can just as easily carry details the client has no business seeing. Only InsufficientCreditsError
+ *  has a message written for end-user display; everything else gets a safe, generic string while
+ *  the full `err` is still logged by the caller. */
 function describeAgentError(err: unknown): { code: string; message: string } {
   if (err instanceof InsufficientCreditsError) return { code: 'INSUFFICIENT_CREDITS', message: err.message };
-  return {
-    code: 'AGENT_CHAT_FAILED',
-    message: err instanceof Error ? err.message : 'Agent chat turn failed unexpectedly.',
-  };
+  return { code: 'AGENT_CHAT_FAILED', message: 'Something went wrong answering that — please try again.' };
 }

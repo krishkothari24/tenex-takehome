@@ -291,8 +291,16 @@ export async function runAgentTurn(
       outputTokens: message.usage.output_tokens,
     });
     // Anthropic's own documented multi-turn tool-use pattern: a Message's content blocks feed
-    // straight back in as the next request's assistant turn.
-    messages.push({ role: 'assistant', content: message.content as unknown as Anthropic.ContentBlockParam[] });
+    // straight back in as the next request's assistant turn. Filtered to the block kinds this app
+    // actually models (agentContentBlockSchema in packages/shared) — the SDK's ContentBlock union
+    // also includes thinking/redacted_thinking/server_tool_use/etc., none of which this loop asks
+    // for (no `thinking` param, no built-in tools) but which the API can still return; forwarding
+    // one unfiltered used to blow up toWireHistory's re-validation with a raw ZodError, which then
+    // leaked as the user-facing error message (see docs/CORRECTIONS_LOG.md).
+    const assistantBlocks = message.content.filter(
+      (b): b is Anthropic.TextBlock | Anthropic.ToolUseBlock => b.type === 'text' || b.type === 'tool_use',
+    );
+    messages.push({ role: 'assistant', content: assistantBlocks as unknown as Anthropic.ContentBlockParam[] });
 
     const step = decideNextStep(message);
 
