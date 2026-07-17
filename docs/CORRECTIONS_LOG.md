@@ -369,3 +369,19 @@ Changed `railway.json`'s `deploy.startCommand` to `npm run db:migrate -w apps/se
 
 **Why it matters:**
 A deploy pipeline that builds and starts the app but never migrates its database will pass every health check and still be completely broken for any code path that touches a table added after the first migration — exactly the kind of gap that's invisible until a real user hits it in production. Also a concrete case where the logging shape itself (structured-only, no plain-text summary) blocked diagnosis; structured fields are only useful if the tooling reading them actually surfaces them.
+
+### [Deploy] — Production Gmail sync failing (generic "Could not reach Gmail" 502); underlying error hidden again — 2026-07-17
+**What Claude Code generated first:**
+`inbox.ts`'s sync route caught all non-reauth errors with `request.log.error({ err }, 'Inbox sync failed')` and returned a generic 502 to the client.
+
+**What was wrong / the risk:**
+Identical gap to the one already fixed in `auth.ts`'s OAuth callback (see the entry above, same day): Railway's log viewer (and the `mcp__railway__get_logs` tool) only surfaces the top-level `msg` string, dropping structured fields like `err`. That earlier fix was applied only to the callback route, not to the sync route — so when the human reported the generic "Could not reach Gmail" message from the deployed app, `get_logs` searches for `err`, `decrypt`, etc. all came up empty, exactly the same dead end as before.
+
+**How it was caught:**
+Human reported the generic error message from the deployed app; re-derived the same root cause via `docs/CORRECTIONS_LOG.md`'s own prior entry before re-discovering it by trial and error.
+
+**The fix:**
+Folded `err.message` into the log line in `inbox.ts` (`request.log.error({ err }, \`Inbox sync failed: ${message}\`)`), mirroring the callback route, and redeployed so the next failure is diagnosable.
+
+**Why it matters:**
+A fix scoped to "the one route the human happened to hit" instead of "the pattern" leaves the same landmine in every other catch block — this codebase now has at least two routes with broad try/catch-and-log-generic-message handlers around external calls (Gmail sync, OAuth callback); both needed the same treatment, and any new one should get it from the start.
